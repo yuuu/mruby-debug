@@ -74,6 +74,7 @@ script.rb` also works).
 | `watch [<expr>]` | | Stop when `<expr>`'s value changes (no argument lists watches) |
 | `display <expr>` | | Print `<expr>` at every stop |
 | `print <expr>` | `p` | Evaluate `<expr>` in the selected frame |
+| `info [locals]` | `i` | Show the selected frame's local variables |
 | `list [[<file>:]<line>]` | `l` | Show source around the current line |
 | `cat [<file>]` | | Show a whole source file |
 | `backtrace` | `bt`, `where` | Show the call stack (`#0` = innermost) |
@@ -85,8 +86,8 @@ script.rb` also works).
 - A method breakpoint stops inside a Ruby method, or just before calling a
   C method. `Foo#bar` also matches subclasses and includers, and `Foo` need
   not be defined yet.
-- `frame`/`up`/`down` only affect `print`/`list`; execution always resumes
-  from the actual stop.
+- `frame`/`up`/`down` only affect `print`/`info`/`list`; execution always
+  resumes from the actual stop.
 
 ### Remote connection
 
@@ -128,8 +129,11 @@ Then attach with [vscode-rdbg](https://marketplace.visualstudio.com/items?itemNa
 }
 ```
 
-Breakpoints, continue, step over/in, the call stack and source view work;
-variables, watch expressions and step out are not supported yet.
+Breakpoints (including conditions), continue, step over/in, the call stack,
+source view, local variables per frame and evaluation (Debug Console,
+hover, Watch panel) work. Values are shown by `inspect` and can't be
+expanded. Function breakpoints, data breakpoints (`watch`) and step out are
+not supported yet.
 
 ## Features
 
@@ -156,6 +160,6 @@ build.
 ## Roadmap
 
 - `quit`, `finish`, `catch` (exception breakpoints)
-- Variables, evaluate and step out over DAP
+- Function breakpoints and step out over DAP
 - A serial transport
 - PicoRuby's mruby/c VM (not supported: it has no debug hook)

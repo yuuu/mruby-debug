@@ -436,9 +436,15 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   server (for vscode-rdbg's `attach`) that drives a device over the same
   plain-text `(mrdbg)` protocol, so no JSON ever reaches the device.
   `DapBridge#handle` maps requests to `(mrdbg)` commands (`bt` for
-  `stackTrace`, `cat` for `source`); `stepOut`/`scopes`/`variables`/
-  `evaluate` aren't implemented, since the text protocol has no way to
-  carry a frame's locals.
+  `stackTrace`, `cat` for `source`, `frame N` then `p expr` / `info
+  locals` for `evaluate`/`variables`, with the DAP frame id being the `bt`
+  index) and parses their text output back; for the latter it goes
+  through `@remote.command(line)` (`DeviceLink#command`, or
+  `RemoteSession#command` via `Command.dispatch`). A failed `p` is told
+  apart from a value by `Command::EVAL_ERROR_PREFIX` (`"eval error: "`,
+  debug gem's wording) — don't change that output without updating
+  `DapBridge#eval_error?`. Values aren't expandable (`variablesReference`
+  0); `stepOut` isn't implemented (no `finish` command yet).
 - **`tools/mrdebug/ui/local_console.rb`** (host builds only) —
   `MRDebug::UI::LocalConsole`: the `(mrdbg)` prompt, one `STDIN.gets` (now via
   a `Transport`, defaulting to `Stdio`) per command. Reading exactly one

@@ -13,6 +13,7 @@ module MRDebug
       'up' => :up,
       'down' => :down,
       'cat' => :cat,
+      'i' => :info, 'info' => :info,
       'display' => :display,
       'watch' => :watch,
       'h' => :help, 'help' => :help,
@@ -81,6 +82,11 @@ module MRDebug
         '',
         'With no arguments, help displays a short list of commands.',
         'With a command name as help argument, help displays how to use that command.',
+      ]],
+      [:info, 'i[nfo]', 'Show local variables', [
+        'Usage: info [locals]',
+        '',
+        'Show the local variables of the selected frame, one \'name = value\' per line.',
       ]],
       [:list, 'l[ist]', 'List specified line', [
         'Usage: list',
@@ -154,6 +160,8 @@ module MRDebug
         [move_frame(session, -parse_count(arg)), :stay]
       when :cat
         [cat_cmd(session, arg), :stay]
+      when :info
+        [info_cmd(session, arg), :stay]
       when :display
         [display_cmd(session, arg), :stay]
       when :watch
@@ -426,16 +434,49 @@ module MRDebug
       lines.empty? ? ['No watches set'] : lines
     end
 
+    # debug gem's wording. Also what lets DapBridge tell a failed
+    # `evaluate` apart from a value whose #inspect merely looks like an error.
+    EVAL_ERROR_PREFIX = 'eval error: '.freeze
+    NO_BINDING = 'No binding available for this breakpoint'.freeze
+
     def self.print_cmd(session, arg)
       return ['Usage: p <expression>'] if blank?(arg)
       bnd = session.binding
-      return ['No binding available for this breakpoint'] if bnd.nil?
+      return [NO_BINDING] if bnd.nil?
       begin
         [bnd.eval(arg).inspect]
       rescue Exception => e
         # Exception, not StandardError: a bad expression can raise SyntaxError.
-        ["#{e.class}: #{e.message}"]
+        ["#{EVAL_ERROR_PREFIX}#{e.class}: #{e.message}"]
       end
+    end
+
+    # `info` / `info locals`: the selected frame's locals, "name = value"
+    # each (DapBridge's `variables` splits on the first " = ").
+    def self.info_cmd(session, arg)
+      sub = blank?(arg) ? 'locals' : trim(arg)
+      return ["Unknown info subcommand: #{sub}"] unless sub == 'locals' || sub == 'l'
+      bnd = session.binding
+      return [NO_BINDING] if bnd.nil?
+
+      names = bnd.local_variables.select { |name| local_name?(name.to_s) }
+      return ['No local variables'] if names.empty?
+      names.map { |name| "#{name} = #{inspect_local(bnd, name)}" }
+    end
+
+    # PicoRuby's compiler lists hidden locals too (an empty name, for one),
+    # which local_variable_get then rejects -- keep only names a script
+    # could have written: a-z, _ or non-ASCII first.
+    def self.local_name?(str)
+      return false if str.empty?
+      c = str[0]
+      (c >= 'a' && c <= 'z') || c == '_' || str.getbyte(0) >= 0x80
+    end
+
+    def self.inspect_local(bnd, name)
+      bnd.local_variable_get(name).inspect
+    rescue Exception => e
+      "#{EVAL_ERROR_PREFIX}#{e.class}: #{e.message}"
     end
 
     def self.backtrace_cmd(session)

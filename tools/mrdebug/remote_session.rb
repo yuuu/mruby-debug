@@ -55,6 +55,14 @@ module MRDebug
       out.join("\n")
     end
 
+    # One :stay-style (mrdbg) command's output lines -- the same shape as
+    # DeviceLink#command, so DapBridge can map DAP requests onto commands
+    # (frame/p/info) identically for either @remote.
+    def command(line)
+      out, = MRDebug::Command.dispatch(@session, line)
+      out
+    end
+
     def add_display(expr)
       @session.add_display(expr)
     end
