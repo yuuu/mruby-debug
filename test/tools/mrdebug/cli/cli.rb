@@ -44,7 +44,7 @@ end
 
 assert('CLI.start --help writes usage and never opens a Session') do
   transport = MRDebug::Transport::Loopback.new
-  MRDebug::CLI.start(['--help'], transport)
+  assert_true MRDebug::CLI.start(['--help'], transport)
   assert_equal 1, transport.output.size
   assert_true transport.output[0].include?('Usage: mrdbg')
 ensure
@@ -53,7 +53,7 @@ end
 
 assert('CLI.start with a connection flag reports it as unsupported, no Session') do
   transport = MRDebug::Transport::Loopback.new
-  MRDebug::CLI.start(['--serial', '/dev/ttyUSB0'], transport)
+  assert_false MRDebug::CLI.start(['--serial', '/dev/ttyUSB0'], transport)
   assert_equal 1, transport.output.size
   assert_true transport.output[0].include?('not supported yet')
 ensure
@@ -66,7 +66,7 @@ assert('CLI.start --port reports a connection failure instead of stalling on std
   server.close # nothing listens at `port` from here on
 
   transport = MRDebug::Transport::Loopback.new
-  MRDebug::CLI.start(['--port', port.to_s], transport)
+  assert_false MRDebug::CLI.start(['--port', port.to_s], transport)
 
   out = transport.output.join
   assert_true out.include?("connect 127.0.0.1:#{port} failed")
@@ -74,7 +74,7 @@ end
 
 assert('CLI.start --sock-path reports a connection failure instead of stalling on stdin') do
   transport = MRDebug::Transport::Loopback.new
-  MRDebug::CLI.start(['--sock-path', '/tmp/mrdebug-cli-test-no-such.sock'], transport)
+  assert_false MRDebug::CLI.start(['--sock-path', '/tmp/mrdebug-cli-test-no-such.sock'], transport)
 
   out = transport.output.join
   assert_true out.include?('connect /tmp/mrdebug-cli-test-no-such.sock failed')
@@ -91,7 +91,7 @@ assert('CLI.start with no args auto-connects to MRDEBUG_PORT and reports failure
   ENV['MRDEBUG_PORT'] = port.to_s
 
   transport = MRDebug::Transport::Loopback.new
-  MRDebug::CLI.start([], transport)
+  assert_false MRDebug::CLI.start([], transport)
 
   out = transport.output.join
   assert_true out.include?("connect 127.0.0.1:#{port} failed")
@@ -99,6 +99,16 @@ ensure
   if saved_port.nil? then ENV.delete('MRDEBUG_PORT') else ENV['MRDEBUG_PORT'] = saved_port end
   if saved_sock.nil? then ENV.delete('MRDEBUG_SOCK') else ENV['MRDEBUG_SOCK'] = saved_sock end
   MRDebug::Hook.uninstall
+end
+
+assert('CLI.start --port --dap-port reports a failure to reach the device as false') do
+  server = TCPServer.new('127.0.0.1', 0)
+  port = server.addr[1]
+  server.close # nothing listens at `port` from here on
+
+  transport = MRDebug::Transport::Loopback.new
+  assert_false MRDebug::CLI.start(['--port', port.to_s, '--dap-port', '0'], transport)
+  assert_true transport.output.join.include?('dap bridge failed')
 end
 
 assert('CLI.start with no args runs a demo session against RemoteSession end to end') do

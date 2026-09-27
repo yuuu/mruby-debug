@@ -2,7 +2,10 @@ module MRDebug
   module CLI
     # `transport` is the CLI's own I/O (Stdio by default, swappable for a
     # Loopback in tests); --port/--sock-path hand off to #relay instead,
-    # which talks to real STDIN/STDOUT directly.
+    # which talks to real STDIN/STDOUT directly. Returns false when it
+    # couldn't do what was asked (a failed connection, an unsupported
+    # flag), which the `mrdbg` binary turns into a nonzero exit status --
+    # what lets a VS Code preLaunchTask notice the bridge never came up.
     def self.start(argv, transport = MRDebug::Transport::Stdio.new)
       options = Options.parse(argv)
 
@@ -11,23 +14,23 @@ module MRDebug
       elsif options.version
         transport.write("mrdbg (interim build -- no wire protocol yet)\n")
       elsif options.port && options.dap_port
-        connect_dap(options, transport)
+        return connect_dap(options, transport)
       elsif options.port
-        connect_tcp(options, transport)
+        return connect_tcp(options, transport)
       elsif options.sock_path
-        if defined?(UNIXSocket)
-          connect_unix(options, transport)
-        else
-          transport.write("#{unsupported_message('--sock-path')}\n")
-        end
+        return connect_unix(options, transport) if defined?(UNIXSocket)
+        transport.write("#{unsupported_message('--sock-path')}\n")
+        return false
       elsif options.unsupported
         transport.write("#{unsupported_message(options.unsupported)}\n")
+        return false
       elsif argv.empty?
-        connect_auto(transport)
+        return connect_auto(transport)
       else
         transport.write("(interim build: no remote device yet -- simulating a single local stop)\n")
         run_demo_session(options, transport)
       end
+      true
     end
 
     # `mrdbg` with no args: MRDEBUG_SOCK, else MRDEBUG_PORT, else 4711.
@@ -66,8 +69,10 @@ module MRDebug
       remote = MRDebug::Transport::TCP.connect(options.host, options.port)
       transport.write("Connected to #{options.host}:#{options.port}\n")
       relay(remote.io, transport)
+      true
     rescue => e
       transport.write("connect #{options.host}:#{options.port} failed: #{e.class}: #{e.message}\n")
+      false
     ensure
       remote.close if remote
     end
@@ -84,8 +89,10 @@ module MRDebug
       transport.write("DAP bridge listening on #{options.dap_port}; waiting for a client to attach...\n")
       DapServer.new(device, options.dap_port).run
       transport.write("(dap session ended)\n")
+      true
     rescue => e
       transport.write("dap bridge failed: #{e.class}: #{e.message}\n")
+      false
     ensure
       device.close if device
     end
@@ -94,8 +101,10 @@ module MRDebug
       remote = MRDebug::Transport::Unix.connect(options.sock_path)
       transport.write("Connected to #{options.sock_path}\n")
       relay(remote.io, transport)
+      true
     rescue => e
       transport.write("connect #{options.sock_path} failed: #{e.class}: #{e.message}\n")
+      false
     ensure
       remote.close if remote
     end

@@ -129,6 +129,51 @@ Then attach with [vscode-rdbg](https://marketplace.visualstudio.com/items?itemNa
 }
 ```
 
+To have VS Code start the bridge itself, run `mrdbg` as a background task
+and name it as the attach configuration's `preLaunchTask`. VS Code waits for
+the `DAP bridge listening on` line before attaching. If the device can't be
+reached, `mrdbg` exits nonzero and the debug session doesn't start. The
+bridge exits when the session ends, so each F5 starts a fresh one. Start the
+script on the device first, so that it's waiting in `binding.debugger`.
+
+`.vscode/tasks.json`:
+
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "mrdbg bridge",
+      "type": "process",
+      "command": "/path/to/build/host/bin/mrdbg",
+      "args": ["--host", "192.168.0.10", "--port", "4711", "--dap-port", "12345"],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "mrdbg",
+        "pattern": { "regexp": "^never-matches$" },
+        "background": {
+          "activeBegins": true,
+          "beginsPattern": "^Connected to device",
+          "endsPattern": "^DAP bridge listening on"
+        }
+      }
+    }
+  ]
+}
+```
+
+`.vscode/launch.json`:
+
+```json
+{
+  "type": "rdbg",
+  "request": "attach",
+  "name": "Attach to device",
+  "debugPort": "localhost:12345",
+  "preLaunchTask": "mrdbg bridge"
+}
+```
+
 Line breakpoints (with conditions), function breakpoints (`Class#method`,
 `Class.method`, `method`), continue, step over/in, the call stack, source
 view, local variables per frame and evaluation (Debug Console, hover, Watch
