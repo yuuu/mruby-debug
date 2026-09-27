@@ -24,7 +24,12 @@ module MRDebug
           drain_device_stops(client)
           ready, = IO.select([client, @device.io])
           next unless ready
-          break if ready.include?(@device.io) && !handle_device(client)
+          if ready.include?(@device.io) && !handle_device(client)
+            # The device closed the connection: its program ended (or it
+            # went away), so this debug session is over too.
+            write_message(client, @bridge.terminated_notification)
+            break
+          end
           break if ready.include?(client) && !handle_client(client)
         end
       ensure
@@ -69,12 +74,7 @@ module MRDebug
       end
 
       def send_stop(client)
-        reason = breakpoint_stop?(@device.stopped_by) ? 'breakpoint' : 'step'
-        write_message(client, @bridge.stopped_notification(reason))
-      end
-
-      def breakpoint_stop?(banner)
-        banner && banner[0, 10] == 'Breakpoint'
+        @bridge.stop_messages(@device.stopped_by).each { |m| write_message(client, m) }
       end
 
       def write_message(client, msg)

@@ -445,6 +445,20 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   debug gem's wording) — don't change that output without updating
   `DapBridge#eval_error?`. Values aren't expandable (`variablesReference`
   0); `stepOut` isn't implemented (no `finish` command yet).
+  Breakpoints (`setBreakpoints`/`setFunctionBreakpoints`) are `break`/
+  `delete` commands as well: DAP ids are the bridge's own, each mapped to
+  the device number parsed from the `Breakpoint N added at ...` reply
+  (line and method breakpoints share one number sequence on the device, so
+  counting locally would drift). The `stopped` reason comes from the stop
+  banner (`Breakpoint N:` → `breakpoint`/`function breakpoint` with
+  `hitBreakpointIds`, `Watchpoint` → `data breakpoint`, `Stop:` → `step`,
+  or `breakpoint` after a `continue`, i.e. another `binding.debugger`).
+  **Never send a command while the device runs**: it reads nothing until
+  its next stop, so `DeviceLink#command` would block and then take the
+  stop banner for the reply. `DapBridge` tracks `@running` and holds
+  breakpoint requests made meanwhile, applying them in `#stop_messages`
+  (as `breakpoint` `changed` events) — so they only take effect from the
+  next stop on. A device EOF becomes a `terminated` event (`DapServer`).
 - **`tools/mrdebug/ui/local_console.rb`** (host builds only) —
   `MRDebug::UI::LocalConsole`: the `(mrdbg)` prompt, one `STDIN.gets` (now via
   a `Transport`, defaulting to `Stdio`) per command. Reading exactly one
