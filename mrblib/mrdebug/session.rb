@@ -12,6 +12,7 @@ module MRDebug
       @breakpoints = []
       @mode = :run
       @next_depth = nil
+      @finish_depth = nil
       @remaining = 1
       @displays = []
       @watches = []
@@ -143,6 +144,21 @@ module MRDebug
       update_armed
     end
 
+    # Resume until the selected frame returns: stop at the first line run in
+    # a frame shallower than it -- its caller, back from the call (gdb's
+    # `finish`, DAP's stepOut). A frame's height, frame_count - its raw
+    # depth, is the same before and after a direct stop's
+    # DIRECT_STOP_FRAME_OFFSET frames go away, so no offset is needed here.
+    # Finishing the outermost frame just runs to the end.
+    def finish_mode!
+      @mode = :finish
+      frames = frame_list
+      depth = frames.empty? ? 0 : frames[@frame_index][2]
+      @finish_depth = MRDebug::Hook.frame_count - depth - 1
+      @remaining = 1
+      update_armed
+    end
+
     # Headline for the current stop, delegated to whatever @stopped_by is.
     def stop_banner
       loc = "#{@file}:#{@line}"
@@ -199,7 +215,8 @@ module MRDebug
       MRDebug::Hook.watch_method_names(names)
     end
 
-    # nil, or why we stop: a LineBreakpoint/WatchVarBreakpoint object, :step, or :next.
+    # nil, or why we stop: a LineBreakpoint/WatchVarBreakpoint object,
+    # :step, :next, or :finish.
     def stop_reason_for(file, line)
       return nil if OwnSource.file?(file)
       wp = triggered_watch
@@ -207,6 +224,7 @@ module MRDebug
       case @mode
       when :step then :step
       when :next then MRDebug::Hook.frame_count <= @next_depth ? :next : nil
+      when :finish then MRDebug::Hook.frame_count <= @finish_depth ? :finish : nil
       else
         bp = @breakpoints.find { |b| b.match?(file, line) }
         bp && condition_met?(bp) ? bp : nil

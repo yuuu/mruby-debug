@@ -290,6 +290,14 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
     stops in one session. `next_mode!` subtracts it when `@direct_stop` is
     set, rather than falling back to `step_mode!` as an earlier version of
     this file did.
+  - **`#finish_mode!`** (`finish`/`fin`, DAP `stepOut`) stops once
+    `Hook.frame_count <= @finish_depth`, where `@finish_depth` is the
+    selected frame's height (`frame_count - raw depth`, via `#frame_list`)
+    minus 1 — i.e. at the first line run in its caller, which is the call
+    site itself (the call's result not yet assigned), as in gdb. A frame's
+    height doesn't change when a direct stop's offset frames go away, so
+    unlike `next_mode!` it needs no `DIRECT_STOP_FRAME_OFFSET` correction.
+    Like step/next, it doesn't check breakpoints on the way.
   - `on_line`'s 3rd parameter (`bnd`) distinguishes a direct stop (always
     present, and *always* stops unconditionally) from a hook-triggered one
     (`nil`; `MRDebug::Hook.frame_binding(0)` is used to build the binding
@@ -464,7 +472,9 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   apart from a value by `Command::EVAL_ERROR_PREFIX` (`"eval error: "`,
   debug gem's wording) — don't change that output without updating
   `DapBridge#eval_error?`. Values aren't expandable (`variablesReference`
-  0); `stepOut` isn't implemented (no `finish` command yet).
+  0). `stepOut` is `frame 0` then `finish` (DAP's stepOut names no
+  frame, so it must not finish whatever frame an earlier `evaluate`/
+  `variables` left selected).
   Breakpoints (`setBreakpoints`/`setFunctionBreakpoints`) are `break`/
   `delete` commands as well: DAP ids are the bridge's own, each mapped to
   the device number parsed from the `Breakpoint N added at ...` reply

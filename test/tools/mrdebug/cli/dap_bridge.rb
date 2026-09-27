@@ -264,13 +264,27 @@ ensure
   MRDebug::Hook.uninstall
 end
 
-assert('DapBridge reports stepOut as not supported yet') do
-  bridge = MRDebug::CLI::DapBridge.new(dap_bridge_test_remote)
-  bridge.handle('seq' => 1, 'type' => 'request', 'command' => 'configurationDone')
+class DapBridgeFinishRecorder < MRDebug::Session
+  attr_reader :finished_from
+  def finish_mode!
+    @finished_from = frame_index
+    super
+  end
+end
 
-  msgs = bridge.handle('seq' => 2, 'type' => 'request', 'command' => 'stepOut')
-  assert_false msgs[0]['success']
-  assert_true msgs[0]['message'].include?('not supported yet')
+assert('DapBridge stepOut finishes the innermost frame, whatever frame was selected, and reports a step') do
+  dap_step_out_x = 1
+  session = DapBridgeFinishRecorder.new
+  session.on_line('/device/foo.rb', 1, binding)
+  bridge = MRDebug::CLI::DapBridge.new(MRDebug::RemoteSession.new(session))
+  dap_req(bridge, 'configurationDone')
+  dap_req(bridge, 'evaluate', 'expression' => 'dap_step_out_x', 'frameId' => 1)
+  assert_equal 1, session.frame_index # the evaluate left frame 1 selected
+
+  msgs = dap_req(bridge, 'stepOut')
+  assert_true msgs[0]['success']
+  assert_equal 0, session.finished_from
+  assert_equal 'step', bridge.stop_messages('Stop: foo.rb:9')[0]['body']['reason']
 ensure
   MRDebug::Hook.uninstall
 end

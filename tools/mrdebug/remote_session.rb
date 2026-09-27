@@ -94,5 +94,9 @@ module MRDebug
     def next_mode!(count = 1)
       @session.next_mode!(count)
     end
+
+    def finish_mode!
+      @session.finish_mode!
+    end
   end
 end

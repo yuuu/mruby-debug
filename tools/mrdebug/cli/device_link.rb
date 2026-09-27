@@ -112,6 +112,10 @@ module MRDebug
         send(count > 1 ? "s #{count}" : 's')
       end
 
+      def finish_mode!
+        send('finish')
+      end
+
       def close
         @io.close
       end

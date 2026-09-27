@@ -69,6 +69,7 @@ script.rb` also works).
 | `continue` | `c`, empty input | Resume until the next breakpoint |
 | `step [<n>]` | `s` | Stop at the next executed line, entering calls |
 | `next [<n>]` | `n` | Stop at the next line in the same or a shallower frame |
+| `finish` | `fin` | Run until the selected frame returns; stop at the call site in its caller |
 | `break [<file>:]<line> [if <expr>]` | `b` | Add a line breakpoint (no argument lists breakpoints) |
 | `break <Class>#<method>` / `<Class>.<method>` / `<method>` | `b` | Add a method breakpoint (`#` instance, `.` singleton, bare = any class) |
 | `delete [<n>]` | `d` | Delete breakpoint `<n>`, or all with no argument |
@@ -189,10 +190,10 @@ script on the device first, so that it's waiting in `binding.debugger`.
 ```
 
 Line breakpoints (with conditions), function breakpoints (`Class#method`,
-`Class.method`, `method`), continue, step over/in, the call stack, source
+`Class.method`, `method`), continue, step over/in/out, the call stack, source
 view, local variables per frame and evaluation (Debug Console, hover, Watch
 panel) work. Values are shown by `inspect` and can't be expanded. Data
-breakpoints (`watch`), step out and pause are not supported yet.
+breakpoints (`watch`) and pause are not supported yet.
 
 A running device doesn't read from the connection, so breakpoints set while
 the program runs take effect only at its next stop (VS Code shows them as
@@ -223,7 +224,7 @@ build.
 
 ## Roadmap
 
-- `quit`, `finish`, `catch` (exception breakpoints)
-- Step out and pause over DAP
+- `quit`, `catch` (exception breakpoints)
+- Pause over DAP
 - A serial transport
 - PicoRuby's mruby/c VM (not supported: it has no debug hook)
