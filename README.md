@@ -113,17 +113,25 @@ long-running program can be attached to again without restarting it.
 ### On a device
 
 A device script needs nothing but `binding.debugger`. With no setting, the
-device listens on TCP port 4711 when it reaches one. To change that on R2P2,
-set `mrdebug_port` in `/etc/config.yml` (R2P2 loads its `env:` section into
-`ENV` at boot):
+firmware's gem decides what happens when it reaches one:
+
+- built with the `console/` gem (`path: 'console'`): the `(mrdbg)` prompt
+  opens on the device's own console
+- built with `mrdebug` alone: the device listens on TCP port 4711, for
+  `mrdbg` or VS Code
+
+To choose otherwise on R2P2, set `mrdebug_port` in `/etc/config.yml` (R2P2
+loads its `env:` section into `ENV` at boot). A number makes the device
+listen on that TCP port even with the `console/` gem. `console` opens the
+on-device prompt, which needs the `console/` gem:
 
 ```yaml
 env:
-  mrdebug_port: 5000      # or `console` for the on-device (mrdbg) prompt
+  mrdebug_port: 4711      # e.g. to attach VS Code to a console/ build
 ```
 
-`export MRDEBUG_PORT=console` in the R2P2 shell does the same for that
-session. `console` needs the `console/` gem.
+`export MRDEBUG_PORT=4711` in the R2P2 shell does the same for that
+session.
 
 ### Connecting from VS Code
 

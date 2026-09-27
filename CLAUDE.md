@@ -180,9 +180,10 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   the device's own raw console through `Editor::Line`, and its
   `MRDebug.attach_local` overrides `tools/mrdebug/device.rb`'s (it loads
   later as a dependent). Only `attach_local` is overridden, never
-  `autostart`, so the choice of transport stays in one place: this
-  console opens only for `MRDEBUG_PORT=console` (R2P2: `mrdebug_port:
-  console` in `/etc/config.yml`); otherwise a device listens on TCP.
+  `autostart`, so the choice of transport stays in one place: with this
+  gem the console is the default, and a numeric `MRDEBUG_PORT` (R2P2:
+  `mrdebug_port: 4711` in `/etc/config.yml`) makes the device listen on
+  TCP instead.
 - **`src/hook.c`** — the VM hook. `struct mrdebug_hook hook` (file-static)
   holds everything: the installed session, whether the hook is armed,
   same-line dedup state (`prev_irep`/`prev_line`), the dedicated debugger
@@ -418,8 +419,10 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   hit finds no session: `MRDEBUG_SOCK` → `listen_unix`; `MRDEBUG_PORT=console`
   → `attach_local`; any other `MRDEBUG_PORT` → `listen_tcp(default_port)`
   (a non-numeric value falls back to `DEFAULT_PORT`); unset → `attach_local`
-  on a build with `Transport::Stdio` (host: `attach_stdio`, the zero-setup
-  local prompt README's Usage example relies on), else `listen_tcp(DEFAULT_PORT)`
+  on a build with a local console — `Transport::Stdio` (host: `attach_stdio`,
+  the zero-setup local prompt README's Usage example relies on) or
+  `UI::Console` (a device built with `mrdebug-console`: including that gem
+  is the choice of the on-device prompt) — else `listen_tcp(DEFAULT_PORT)`
   (a device: the script carries nothing but `binding.debugger`, and on
   R2P2 `MRDEBUG_PORT` comes from `/etc/config.yml`'s `env: mrdebug_port:`
   or the shell's `export`). `attach_local` is the one seam the

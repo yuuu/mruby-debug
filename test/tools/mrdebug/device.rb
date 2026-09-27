@@ -160,3 +160,19 @@ assert('MRDebug.autostart with nothing configured on a host build opens the loca
     assert_equal [[:local]], calls
   end
 end
+
+assert('MRDebug.local_by_default?: a device build opens the local console only with the console gem (UI::Console)') do
+  # Hide the host's Transport::Stdio to look like a device build.
+  stdio = MRDebug::Transport.send(:remove_const, :Stdio)
+  had_console = MRDebug::UI.const_defined?(:Console)
+  console = had_console ? MRDebug::UI.send(:remove_const, :Console) : nil
+
+  assert_false MRDebug.local_by_default? # mrdebug alone: TCP
+
+  MRDebug::UI.const_set(:Console, console || Class.new(MRDebug::UI::Base))
+  assert_true MRDebug.local_by_default? # with mrdebug-console: its prompt
+ensure
+  MRDebug::UI.send(:remove_const, :Console) if MRDebug::UI.const_defined?(:Console)
+  MRDebug::UI.const_set(:Console, console) if had_console
+  MRDebug::Transport.const_set(:Stdio, stdio) if stdio
+end
