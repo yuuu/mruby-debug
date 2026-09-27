@@ -201,7 +201,52 @@ assert('Command.dispatch print reports a raised exception instead of crashing') 
 
   out, _ = MRDebug::Command.dispatch(session, 'p 1/0')
   assert_equal 1, out.size
-  assert_true out[0].include?('ZeroDivisionError')
+  assert_equal 'eval error: ZeroDivisionError', out[0][0, 29]
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('Command.dispatch info/info locals list the stopped binding\'s locals as "name = value"') do
+  session = MRDebug::Session.new
+  info_local_num = 42
+  info_local_str = 'hi'
+  session.on_line('/x.rb', 1, binding)
+
+  ['info', 'i', 'info locals', 'info l'].each do |cmd|
+    out, action = MRDebug::Command.dispatch(session, cmd)
+    assert_equal :stay, action
+    assert_true out.include?('info_local_num = 42')
+    assert_true out.include?('info_local_str = "hi"')
+  end
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('Command.dispatch info skips hidden locals a script could not have named') do
+  session = MRDebug::Session.new
+  fake = Object.new
+  def fake.local_variables; [:"", :"*", :visible]; end
+  def fake.local_variable_get(name); 1; end
+  session.on_line('/x.rb', 1, fake)
+  out, _ = MRDebug::Command.dispatch(session, 'info')
+  assert_equal ['visible = 1'], out
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('Command.dispatch info with no binding available') do
+  session = MRDebug::Session.new
+  out, _ = MRDebug::Command.dispatch(session, 'info locals')
+  assert_equal ['No binding available for this breakpoint'], out
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('Command.dispatch info rejects an unknown subcommand') do
+  session = MRDebug::Session.new
+  session.on_line('/x.rb', 1, binding)
+  out, _ = MRDebug::Command.dispatch(session, 'info threads')
+  assert_equal ['Unknown info subcommand: threads'], out
 ensure
   MRDebug::Hook.uninstall
 end

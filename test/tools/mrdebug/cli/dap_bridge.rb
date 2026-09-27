@@ -142,15 +142,137 @@ ensure
   MRDebug::Hook.uninstall
 end
 
-assert('DapBridge reports scopes/variables/evaluate/stepOut as not supported yet') do
+assert('DapBridge reports stepOut as not supported yet') do
   bridge = MRDebug::CLI::DapBridge.new(dap_bridge_test_remote)
   bridge.handle('seq' => 1, 'type' => 'request', 'command' => 'configurationDone')
 
-  %w[scopes variables evaluate stepOut].each do |cmd|
-    msgs = bridge.handle('seq' => 2, 'type' => 'request', 'command' => cmd)
-    assert_false msgs[0]['success']
-    assert_true msgs[0]['message'].include?('not supported yet')
-  end
+  msgs = bridge.handle('seq' => 2, 'type' => 'request', 'command' => 'stepOut')
+  assert_false msgs[0]['success']
+  assert_true msgs[0]['message'].include?('not supported yet')
+ensure
+  MRDebug::Hook.uninstall
+end
+
+def dap_bridge_stopped(bnd)
+  session = MRDebug::Session.new
+  session.on_line('/device/foo.rb', 1, bnd)
+  bridge = MRDebug::CLI::DapBridge.new(MRDebug::RemoteSession.new(session))
+  bridge.handle('seq' => 1, 'type' => 'request', 'command' => 'configurationDone')
+  bridge
+end
+
+def dap_evaluate(bridge, expr, extra = {})
+  args = { 'expression' => expr, 'frameId' => 0 }
+  extra.each { |k, v| args[k] = v }
+  bridge.handle('seq' => 2, 'type' => 'request', 'command' => 'evaluate', 'arguments' => args)[0]
+end
+
+assert('DapBridge initialize advertises conditional breakpoints and hover evaluation') do
+  bridge = MRDebug::CLI::DapBridge.new(dap_bridge_test_remote)
+  body = bridge.handle('seq' => 1, 'type' => 'request', 'command' => 'initialize')[0]['body']
+  assert_true body['supportsConditionalBreakpoints']
+  assert_true body['supportsEvaluateForHovers']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge evaluate returns the inspected value in the requested frame') do
+  dap_eval_x = 21
+  bridge = dap_bridge_stopped(binding)
+
+  msg = dap_evaluate(bridge, 'dap_eval_x * 2')
+  assert_true msg['success']
+  assert_equal '42', msg['body']['result']
+  assert_equal 0, msg['body']['variablesReference']
+
+  # No frameId (e.g. an evaluate before any stackTrace) means frame 0.
+  msg = bridge.handle('seq' => 3, 'type' => 'request', 'command' => 'evaluate',
+                      'arguments' => { 'expression' => 'dap_eval_x' })[0]
+  assert_equal '21', msg['body']['result']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge evaluate turns a raised exception into success:false') do
+  bridge = dap_bridge_stopped(binding)
+  msg = dap_evaluate(bridge, 'dap_eval_undefined_name', 'context' => 'hover')
+  assert_false msg['success']
+  assert_equal 'eval error: ', msg['message'][0, 12]
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge evaluate does not mistake a value that merely looks like an error for one') do
+  bridge = dap_bridge_stopped(binding)
+  msg = dap_evaluate(bridge, "'NameError: x'")
+  assert_true msg['success']
+  assert_equal '"NameError: x"', msg['body']['result']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge evaluate rejects a frame the device does not have') do
+  bridge = dap_bridge_stopped(binding)
+  msg = dap_evaluate(bridge, '1', 'frameId' => 999)
+  assert_false msg['success']
+  assert_equal 'No frame #999', msg['message']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge evaluate rejects a multi-line expression rather than splitting the command') do
+  bridge = dap_bridge_stopped(binding)
+  msg = dap_evaluate(bridge, "1\n2")
+  assert_false msg['success']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge scopes reports one Locals scope keyed by frame id + 1') do
+  bridge = dap_bridge_stopped(binding)
+  msg = bridge.handle('seq' => 2, 'type' => 'request', 'command' => 'scopes',
+                      'arguments' => { 'frameId' => 0 })[0]
+  assert_true msg['success']
+  scopes = msg['body']['scopes']
+  assert_equal 1, scopes.size
+  assert_equal 'Locals', scopes[0]['name']
+  assert_equal 1, scopes[0]['variablesReference']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge variables lists the frame\'s locals via info locals') do
+  dap_var_num = 7
+  dap_var_str = 'a = b'
+  bridge = dap_bridge_stopped(binding)
+  msg = bridge.handle('seq' => 2, 'type' => 'request', 'command' => 'variables',
+                      'arguments' => { 'variablesReference' => 1 })[0]
+  assert_true msg['success']
+  vars = msg['body']['variables']
+  num = vars.find { |v| v['name'] == 'dap_var_num' }
+  str = vars.find { |v| v['name'] == 'dap_var_str' }
+  assert_equal '7', num['value']
+  assert_equal 0, num['variablesReference']
+  # Split on the first " = " only, so a value containing one survives.
+  assert_equal '"a = b"', str['value']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge setBreakpoints forwards a condition, treating "" as none') do
+  remote = dap_bridge_test_remote
+  bridge = MRDebug::CLI::DapBridge.new(remote)
+  request = {
+    'seq' => 1, 'type' => 'request', 'command' => 'setBreakpoints',
+    'arguments' => {
+      'source' => { 'path' => 'foo.rb' },
+      'breakpoints' => [{ 'line' => 10, 'condition' => 'x > 1' }, { 'line' => 20, 'condition' => '' }],
+    },
+  }
+  msgs = bridge.handle(request)
+  assert_true msgs[0]['success']
+  assert_equal 'x > 1', remote.breakpoints[0].condition
+  assert_nil remote.breakpoints[1].condition
 ensure
   MRDebug::Hook.uninstall
 end
