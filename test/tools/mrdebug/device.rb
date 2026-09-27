@@ -106,3 +106,73 @@ ensure
   MRDebug.instance_variable_set(:@session, nil)
   MRDebug::Hook.uninstall
 end
+
+assert('MRDebug.default_port falls back to DEFAULT_PORT for a non-numeric MRDEBUG_PORT') do
+  with_env('MRDEBUG_PORT', 'console') do
+    assert_equal MRDebug::DEFAULT_PORT, MRDebug.default_port
+  end
+end
+
+def device_stub_autostart_targets
+  saved = {}
+  %i[listen_tcp listen_unix attach_local local_by_default?].each { |m| saved[m] = MRDebug.method(m) }
+  calls = []
+  MRDebug.define_singleton_method(:listen_tcp) { |*a| calls << [:tcp, *a] }
+  MRDebug.define_singleton_method(:listen_unix) { |*a| calls << [:unix, *a] }
+  MRDebug.define_singleton_method(:attach_local) { calls << [:local] }
+  yield calls
+ensure
+  saved.each { |m, meth| MRDebug.define_singleton_method(m) { |*a| meth.call(*a) } }
+end
+
+assert('MRDebug.autostart: MRDEBUG_PORT=console opens the local console, on any build') do
+  device_stub_autostart_targets do |calls|
+    MRDebug.define_singleton_method(:local_by_default?) { false }
+    with_env('MRDEBUG_SOCK', nil) do
+      with_env('MRDEBUG_PORT', 'console') do
+        MRDebug.autostart
+      end
+    end
+    assert_equal [[:local]], calls
+  end
+end
+
+assert('MRDebug.autostart with nothing configured on a device build listens on DEFAULT_PORT') do
+  device_stub_autostart_targets do |calls|
+    MRDebug.define_singleton_method(:local_by_default?) { false } # no Transport::Stdio
+    with_env('MRDEBUG_SOCK', nil) do
+      with_env('MRDEBUG_PORT', nil) do
+        MRDebug.autostart
+      end
+    end
+    assert_equal [[:tcp, MRDebug::DEFAULT_PORT]], calls
+  end
+end
+
+assert('MRDebug.autostart with nothing configured on a host build opens the local console') do
+  device_stub_autostart_targets do |calls|
+    assert_true MRDebug.local_by_default? # host builds have Transport::Stdio
+    with_env('MRDEBUG_SOCK', nil) do
+      with_env('MRDEBUG_PORT', nil) do
+        MRDebug.autostart
+      end
+    end
+    assert_equal [[:local]], calls
+  end
+end
+
+assert('MRDebug.local_by_default?: a device build opens the local console only with the console gem (UI::Console)') do
+  # Hide the host's Transport::Stdio to look like a device build.
+  stdio = MRDebug::Transport.send(:remove_const, :Stdio)
+  had_console = MRDebug::UI.const_defined?(:Console)
+  console = had_console ? MRDebug::UI.send(:remove_const, :Console) : nil
+
+  assert_false MRDebug.local_by_default? # mrdebug alone: TCP
+
+  MRDebug::UI.const_set(:Console, console || Class.new(MRDebug::UI::Base))
+  assert_true MRDebug.local_by_default? # with mrdebug-console: its prompt
+ensure
+  MRDebug::UI.send(:remove_const, :Console) if MRDebug::UI.const_defined?(:Console)
+  MRDebug::UI.const_set(:Console, console) if had_console
+  MRDebug::Transport.const_set(:Stdio, stdio) if stdio
+end

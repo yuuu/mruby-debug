@@ -11,8 +11,9 @@ Add the gem to your mruby `build_config.rb`:
 conf.gem github: 'yuuu/mruby-debug', branch: 'main'
 ```
 
-On a PicoRuby device (e.g. R2P2-ESP32), add the on-device console gem
-under `console/` instead — it pulls in `mrdebug` itself:
+On a PicoRuby device (e.g. R2P2-ESP32), either gem works. The on-device
+console gem under `console/` pulls in `mrdebug` itself and adds the
+`(mrdbg)` prompt on the device's own console (see [On a device](#on-a-device)):
 
 ```ruby
 conf.gem github: 'yuuu/mruby-debug', branch: 'main', path: 'console'
@@ -91,8 +92,8 @@ script.rb` also works).
 
 ### Remote connection
 
-Set an environment variable and the first `binding.debugger` waits for a
-client instead of using the local terminal:
+Set an environment variable and `binding.debugger` waits for a client
+instead of using the local terminal:
 
 ```sh
 MRDEBUG_PORT=4711 mruby script.rb       # or MRDEBUG_SOCK=/tmp/mrdebug.sock
@@ -103,12 +104,33 @@ mrdbg                                    # reads MRDEBUG_PORT / MRDEBUG_SOCK
 mrdbg --host 192.168.0.10 --port 4711    # e.g. a board on the network
 ```
 
-A script (or device firmware) can also start listening explicitly:
+While it waits, the process prints `mrdebug: waiting for a debugger on
+port 4711` to stderr. When the client disconnects, the program runs on,
+and the next `binding.debugger` it reaches waits for a new client. A
+long-running program can be attached to again without restarting it.
 
-```ruby
-MRDebug.listen_tcp(4711)   # or MRDebug.listen_unix('/tmp/mrdebug.sock')
-binding.debugger
+### On a device
+
+A device script needs nothing but `binding.debugger`. With no setting, the
+firmware's gem decides what happens when it reaches one:
+
+- built with the `console/` gem (`path: 'console'`): the `(mrdbg)` prompt
+  opens on the device's own console
+- built with `mrdebug` alone: the device listens on TCP port 4711, for
+  `mrdbg` or VS Code
+
+To choose otherwise on R2P2, set `mrdebug_port` in `/etc/config.yml` (R2P2
+loads its `env:` section into `ENV` at boot). A number makes the device
+listen on that TCP port even with the `console/` gem. `console` opens the
+on-device prompt, which needs the `console/` gem:
+
+```yaml
+env:
+  mrdebug_port: 4711      # e.g. to attach VS Code to a console/ build
 ```
+
+`export MRDEBUG_PORT=4711` in the R2P2 shell does the same for that
+session.
 
 ### Connecting from VS Code
 
