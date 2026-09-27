@@ -3,8 +3,8 @@
  * convention always builds a bin from C sources under tools/<bin-name>/*.c
  * with no way to point one at a Ruby entry point directly, so this file
  * carries no debugger logic: it opens an mrb_state, exposes argv as ARGV,
- * calls MRDebug::CLI.start(ARGV), and maps an uncaught exception to a
- * nonzero exit status.
+ * calls MRDebug::CLI.start(ARGV), and maps an uncaught exception, or a
+ * `false` return (a failed connection, ...), to a nonzero exit status.
  */
 #include <mruby.h>
 #include <mruby/array.h>
@@ -25,11 +25,14 @@ main(int argc, char **argv)
   }
   mrb_define_global_const(mrb, "ARGV", mrb_argv);
 
-  mrb_funcall(mrb, mrb_top_self(mrb), "mrdbg_cli_main", 0);
+  mrb_value ok = mrb_funcall(mrb, mrb_top_self(mrb), "mrdbg_cli_main", 0);
 
   int status = EXIT_SUCCESS;
   if (mrb->exc) {
     mrb_print_error(mrb);
+    status = EXIT_FAILURE;
+  }
+  else if (mrb_false_p(ok)) {
     status = EXIT_FAILURE;
   }
 

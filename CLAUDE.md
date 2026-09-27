@@ -420,7 +420,11 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
 - **`tools/mrdbg/mrdbg_cli_main.c`** (host builds only) — the `mrdbg`
   command's C launcher; mruby builds a `spec.bins` entry only from
   `tools/<bin>/*.c`, so it sits apart from the Ruby under `tools/mrdebug/`.
-  It just calls `mrdbg_cli_main` (`tools/mrdebug/cli/main.rb`).
+  It just calls `mrdbg_cli_main` (`tools/mrdebug/cli/main.rb`), and exits
+  nonzero on an uncaught exception or when `CLI.start` returns `false` (a
+  failed connection or an unsupported flag) — README's VS Code
+  `preLaunchTask` setup relies on that to abort instead of attaching to
+  nothing.
 - **`tools/mrdebug/cli/cli.rb`**'s `--port`/`--sock-path` (and no args at
   all, which reads `MRDEBUG_SOCK`/`MRDEBUG_PORT`, falling back to
   `DEFAULT_PORT`, via `connect_auto`) — connect via the
