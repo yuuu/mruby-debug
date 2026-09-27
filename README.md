@@ -129,11 +129,16 @@ Then attach with [vscode-rdbg](https://marketplace.visualstudio.com/items?itemNa
 }
 ```
 
-Breakpoints (including conditions), continue, step over/in, the call stack,
-source view, local variables per frame and evaluation (Debug Console,
-hover, Watch panel) work. Values are shown by `inspect` and can't be
-expanded. Function breakpoints, data breakpoints (`watch`) and step out are
-not supported yet.
+Line breakpoints (with conditions), function breakpoints (`Class#method`,
+`Class.method`, `method`), continue, step over/in, the call stack, source
+view, local variables per frame and evaluation (Debug Console, hover, Watch
+panel) work. Values are shown by `inspect` and can't be expanded. Data
+breakpoints (`watch`), step out and pause are not supported yet.
+
+A running device doesn't read from the connection, so breakpoints set while
+the program runs take effect only at its next stop (VS Code shows them as
+unverified until then). Disconnecting removes every breakpoint and lets the
+program run to the end.
 
 ## Features
 
@@ -160,6 +165,6 @@ build.
 ## Roadmap
 
 - `quit`, `finish`, `catch` (exception breakpoints)
-- Function breakpoints and step out over DAP
+- Step out and pause over DAP
 - A serial transport
 - PicoRuby's mruby/c VM (not supported: it has no debug hook)

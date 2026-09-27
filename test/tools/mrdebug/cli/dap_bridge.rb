@@ -109,16 +109,133 @@ ensure
   MRDebug::Hook.uninstall
 end
 
-assert('DapBridge#stopped_notification/#terminated_notification build unprompted events') do
+assert('DapBridge#stop_messages/#terminated_notification build unprompted events') do
   bridge = MRDebug::CLI::DapBridge.new(dap_bridge_test_remote)
 
-  stopped = bridge.stopped_notification('breakpoint')
-  assert_equal 'event', stopped['type']
-  assert_equal 'stopped', stopped['event']
-  assert_equal 'breakpoint', stopped['body']['reason']
+  msgs = bridge.stop_messages('Stop: foo.rb:3')
+  assert_equal 1, msgs.size
+  assert_equal 'event', msgs[0]['type']
+  assert_equal 'stopped', msgs[0]['event']
+  assert_equal 'Stop: foo.rb:3', msgs[0]['body']['text']
 
   terminated = bridge.terminated_notification
   assert_equal 'terminated', terminated['event']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+def dap_req(bridge, command, args = nil)
+  req = { 'seq' => 1, 'type' => 'request', 'command' => command }
+  req['arguments'] = args if args
+  bridge.handle(req)
+end
+
+def dap_set_bps(bridge, path, lines)
+  dap_req(bridge, 'setBreakpoints', 'source' => { 'path' => path },
+          'breakpoints' => lines.map { |l| { 'line' => l } })[0]
+end
+
+def dap_set_fn_bps(bridge, names)
+  dap_req(bridge, 'setFunctionBreakpoints', 'breakpoints' => names.map { |n| { 'name' => n } })[0]
+end
+
+assert('DapBridge setBreakpoints reports bridge ids and verifies from the device reply') do
+  remote = dap_bridge_test_remote
+  bridge = MRDebug::CLI::DapBridge.new(remote)
+  bps = dap_set_bps(bridge, 'foo.rb', [10, 0])['body']['breakpoints']
+
+  assert_equal [1, 2], bps.map { |bp| bp['id'] }
+  assert_true bps[0]['verified']
+  # Line 0 is refused by the device (`break` says "Invalid line number").
+  assert_false bps[1]['verified']
+  assert_equal 'Invalid line number', bps[1]['message']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge setFunctionBreakpoints adds method breakpoints and replaces the prior set') do
+  remote = dap_bridge_test_remote
+  bridge = MRDebug::CLI::DapBridge.new(remote)
+  msg = dap_set_fn_bps(bridge, ['Foo#bar', 'Foo::Baz.qux', 'helper'])
+  assert_true msg['success']
+  assert_equal [true, true, true], msg['body']['breakpoints'].map { |bp| bp['verified'] }
+  assert_equal ['Foo#bar', 'Foo::Baz.qux', 'helper'], remote.breakpoints.map(&:to_s)
+
+  dap_set_fn_bps(bridge, ['Other#run'])
+  assert_equal ['Other#run'], remote.breakpoints.select(&:active?).map(&:to_s)
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge setFunctionBreakpoints refuses a name that is not a method spec') do
+  remote = dap_bridge_test_remote
+  bridge = MRDebug::CLI::DapBridge.new(remote)
+  # "foo.rb:3" would otherwise reach `break` as a line location.
+  bps = dap_set_fn_bps(bridge, ['foo.rb:3'])['body']['breakpoints']
+  assert_false bps[0]['verified']
+  assert_true bps[0]['message'].include?('Not a method name')
+  assert_equal 0, remote.breakpoints.size
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge keeps line and function breakpoints in step with the device\'s shared numbering') do
+  remote = dap_bridge_test_remote
+  bridge = MRDebug::CLI::DapBridge.new(remote)
+  dap_set_bps(bridge, 'foo.rb', [10])  # device #1
+  dap_set_fn_bps(bridge, ['Foo#bar'])  # device #2
+  dap_set_bps(bridge, 'foo.rb', [20])  # deletes #1, adds #3
+
+  active = remote.breakpoints.select(&:active?).map(&:to_s)
+  assert_equal ['Foo#bar', 'foo.rb:20'], active
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge stop reasons follow the banner and report the hit breakpoint id') do
+  bridge = MRDebug::CLI::DapBridge.new(dap_bridge_test_remote)
+  line_id = dap_set_bps(bridge, 'foo.rb', [10])['body']['breakpoints'][0]['id']
+  fn_id = dap_set_fn_bps(bridge, ['Foo#bar'])['body']['breakpoints'][0]['id']
+  dap_req(bridge, 'configurationDone')
+
+  body = bridge.stop_messages('Breakpoint 1: foo.rb:10')[0]['body']
+  assert_equal 'breakpoint', body['reason']
+  assert_equal [line_id], body['hitBreakpointIds']
+
+  body = bridge.stop_messages('Breakpoint 2: Foo#bar')[0]['body']
+  assert_equal 'function breakpoint', body['reason']
+  assert_equal [fn_id], body['hitBreakpointIds']
+
+  assert_equal 'data breakpoint', bridge.stop_messages('Watchpoint 1: foo.rb:4')[0]['body']['reason']
+
+  dap_req(bridge, 'next')
+  assert_equal 'step', bridge.stop_messages('Stop: foo.rb:5')[0]['body']['reason']
+  # A plain stop after continue can only be another binding.debugger.
+  dap_req(bridge, 'continue')
+  assert_equal 'breakpoint', bridge.stop_messages('Stop: foo.rb:9')[0]['body']['reason']
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('DapBridge holds breakpoints set while running until the next stop') do
+  remote = dap_bridge_test_remote
+  bridge = MRDebug::CLI::DapBridge.new(remote)
+  dap_req(bridge, 'configurationDone')
+  dap_req(bridge, 'continue')
+
+  bps = dap_set_bps(bridge, 'foo.rb', [10])['body']['breakpoints']
+  assert_false bps[0]['verified']
+  dap_set_fn_bps(bridge, ['Foo#bar'])
+  # Superseded before it was ever applied.
+  dap_set_bps(bridge, 'foo.rb', [30])
+  assert_equal 0, remote.breakpoints.size # nothing reached the device yet
+
+  msgs = bridge.stop_messages('Stop: foo.rb:9')
+  changed = msgs.select { |m| m['event'] == 'breakpoint' }
+  assert_equal 2, changed.size
+  assert_true changed.all? { |m| m['body']['reason'] == 'changed' && m['body']['breakpoint']['verified'] }
+  assert_equal 'stopped', msgs[-1]['event']
+  assert_equal ['Foo#bar', 'foo.rb:30'], remote.breakpoints.select(&:active?).map(&:to_s).sort
 ensure
   MRDebug::Hook.uninstall
 end
@@ -132,12 +249,17 @@ ensure
   MRDebug::Hook.uninstall
 end
 
-assert('DapBridge disconnect reports success and a terminated event') do
-  bridge = MRDebug::CLI::DapBridge.new(dap_bridge_test_remote)
-  bridge.handle('seq' => 1, 'type' => 'request', 'command' => 'configurationDone')
-  msgs = bridge.handle('seq' => 2, 'type' => 'request', 'command' => 'disconnect')
+assert('DapBridge disconnect drops every breakpoint, lets the device run and reports terminated') do
+  remote = dap_bridge_test_remote
+  bridge = MRDebug::CLI::DapBridge.new(remote)
+  dap_set_bps(bridge, 'foo.rb', [10])
+  dap_set_fn_bps(bridge, ['Foo#bar'])
+  dap_req(bridge, 'configurationDone')
+
+  msgs = dap_req(bridge, 'disconnect')
   assert_true msgs[0]['success']
   assert_equal 'terminated', msgs[1]['event']
+  assert_equal [], remote.breakpoints.select(&:active?)
 ensure
   MRDebug::Hook.uninstall
 end

@@ -9,26 +9,11 @@ module MRDebug
     class DeviceLink
       PROMPT = '(mrdbg) '.freeze
 
-      # Not Struct.new -- its dynamically-defined accessors have caused a
-      # presym mismatch under mrbtest elsewhere in this gem (see CLAUDE.md's
-      # "Avoid mruby-string-ext methods" note for the same class of bug).
-      class Bp
-        attr_accessor :file, :line, :active
-        alias active? active
-
-        def initialize(file, line, active)
-          @file = file
-          @line = line
-          @active = active
-        end
-      end
-
-      attr_reader :io, :stopped_by, :breakpoints
+      attr_reader :io, :stopped_by
 
       def initialize(io)
         @io = io
         @buf = ''
-        @breakpoints = []
         @stopped_by = nil
       end
 
@@ -82,26 +67,12 @@ module MRDebug
         @io.write("#{cmd}\n")
       end
 
-      # :stay-style command (break/delete/...): send + block for its echo.
+      # :stay-style command (break/delete/frame/p/...): send + block for
+      # its echo. Only valid while the device is stopped at its prompt --
+      # a running device reads nothing, so DapBridge never calls this then.
       def command(cmd)
         send(cmd)
         wait_for_chunk
-      end
-
-      def add_breakpoint(file, line, condition = nil)
-        @breakpoints << Bp.new(file, line, true)
-        n = @breakpoints.size
-        loc = condition ? "#{file}:#{line} if #{condition}" : "#{file}:#{line}"
-        command("break #{loc}")
-        n
-      end
-
-      def remove_breakpoint(n)
-        bp = @breakpoints[n - 1]
-        return false unless bp && bp.active?
-        bp.active = false
-        command("delete #{n}")
-        true
       end
 
       # Raw content of `path` on the device (its `cat` command) -- for
