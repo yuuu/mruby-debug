@@ -214,3 +214,61 @@ assert('binding.debugger stops again for the next client after the previous one 
     assert_true MRDebug.session.equal?(fresh_session)
   end
 end
+
+local_console_finish_inner_line = __LINE__ + 2
+def local_console_finish_inner(x)
+  binding.debugger
+  x + 1
+end
+
+local_console_finish_middle_line = __LINE__ + 2
+def local_console_finish_middle(x)
+  r = local_console_finish_inner(x)
+  r * 2
+end
+
+local_console_finish_outer_line = __LINE__ + 2
+def local_console_finish_outer(x)
+  v = local_console_finish_middle(x)
+  v + 100
+end
+
+assert('LocalConsole finish stops at the call site in the caller, before its result is assigned') do
+  transport = MRDebug::Transport::Loopback.new(['finish', 'p r', 'finish', 'p v', 'c'])
+  session = MRDebug::Session.new
+  session.ui = MRDebug::UI::LocalConsole.new(transport)
+
+  result = nil
+  with_session(session) do
+    result = local_console_finish_outer(1)
+  end
+  assert_equal 104, result
+
+  assert_equal [
+    "Stop: #{__FILE__}:#{local_console_finish_inner_line}\n",
+    "Stop: #{__FILE__}:#{local_console_finish_middle_line}\n",
+    "nil\n",
+    "Stop: #{__FILE__}:#{local_console_finish_outer_line}\n",
+    "nil\n",
+  ], transport.output.reject { |l| l == '(mrdbg) ' }
+ensure
+  MRDebug::Hook.uninstall
+end
+
+assert('LocalConsole finish after up returns from the selected frame, not just the innermost one') do
+  transport = MRDebug::Transport::Loopback.new(['up', 'finish', 'c'])
+  session = MRDebug::Session.new
+  session.ui = MRDebug::UI::LocalConsole.new(transport)
+
+  with_session(session) do
+    local_console_finish_outer(1)
+  end
+
+  assert_equal [
+    "Stop: #{__FILE__}:#{local_console_finish_inner_line}\n",
+    "#1 #{__FILE__}:#{local_console_finish_middle_line}\n",
+    "Stop: #{__FILE__}:#{local_console_finish_outer_line}\n",
+  ], transport.output.reject { |l| l == '(mrdbg) ' }
+ensure
+  MRDebug::Hook.uninstall
+end

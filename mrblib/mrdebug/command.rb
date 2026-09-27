@@ -4,6 +4,7 @@ module MRDebug
       '' => :continue, 'c' => :continue, 'continue' => :continue,
       's' => :step, 'step' => :step,
       'n' => :next, 'next' => :next,
+      'fin' => :finish, 'finish' => :finish,
       'b' => :break, 'break' => :break,
       'd' => :delete, 'delete' => :delete,
       'l' => :list, 'list' => :list,
@@ -70,6 +71,12 @@ module MRDebug
         'Usage: down [N]',
         '',
         'Move the selected frame N frames back toward the stop (N defaults to 1).',
+      ]],
+      [:finish, 'fin[ish]', 'Run until the selected frame returns', [
+        'Usage: finish',
+        '',
+        'Continue until the selected frame returns, and stop at the next line run',
+        'in its caller. Breakpoints are not checked on the way.',
       ]],
       [:frame, 'f[rame]', 'Select or show a frame', [
         'Usage: frame [N]',
@@ -141,6 +148,10 @@ module MRDebug
         [[], :resume]
       when :next
         session.next_mode!(parse_count(arg))
+        [[], :resume]
+      when :finish
+        return [['No current position (not stopped anywhere yet)'], :stay] if session.location.nil?
+        session.finish_mode!
         [[], :resume]
       when :break
         [break_cmd(session, arg), :stay]

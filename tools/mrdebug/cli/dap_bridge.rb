@@ -8,8 +8,8 @@ module MRDebug
     # evaluate/scopes/variables are plain (mrdbg) commands sent through
     # @remote.command -- `frame N` to select the DAP frame, then `p expr` /
     # `info locals` -- with their text output parsed back here, so a frame's
-    # locals never need a structured encoding on the wire. stepOut isn't
-    # handled yet (no `finish` command). A device path never resolves as a
+    # locals never need a structured encoding on the wire. stepOut is
+    # `frame 0` then `finish`. A device path never resolves as a
     # local file, so VS Code always needs `source` (device: `cat`) to
     # actually show the source.
     # continue/next/stepIn only ack
@@ -108,11 +108,6 @@ module MRDebug
         { 'seq' => next_seq, 'type' => 'event', 'event' => name, 'body' => body }
       end
 
-      def not_supported(request)
-        response(request, {}, success: false,
-                 message: "#{request['command']}: not supported yet")
-      end
-
       def handle_handshake_request(request)
         case request['command']
         when 'initialize'
@@ -154,7 +149,11 @@ module MRDebug
         when 'variables'
           [response(request, variables_body(request))]
         when 'stepOut'
-          [not_supported(request)]
+          # DAP's stepOut carries no frame: finish the innermost one, not
+          # whichever frame an earlier evaluate/variables left selected.
+          @remote.command('frame 0')
+          resume(:step_out) { @remote.finish_mode! }
+          [response(request)]
         when 'setBreakpoints'
           [response(request, set_breakpoints_body(request))]
         when 'setFunctionBreakpoints'

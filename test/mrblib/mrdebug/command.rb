@@ -504,3 +504,12 @@ assert('Command.dispatch help <unknown> reports an invalid command') do
 ensure
   MRDebug::Hook.uninstall
 end
+
+assert('Command.dispatch finish with no current position reports it and stays') do
+  session = MRDebug::Session.new
+  out, action = MRDebug::Command.dispatch(session, 'finish')
+  assert_equal ['No current position (not stopped anywhere yet)'], out
+  assert_equal :stay, action
+ensure
+  MRDebug::Hook.uninstall
+end
