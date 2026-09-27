@@ -34,11 +34,12 @@ module MRDebug
   # MRDebug.break calls this whenever a binding.debugger hit finds no
   # session (the first one, or after a client went away -- MRDebug.detach):
   # MRDEBUG_SOCK -> Unix listener; MRDEBUG_PORT=console -> the local
-  # console; any other MRDEBUG_PORT -> TCP listener on it. With neither, a
-  # host build (which has a terminal: Transport::Stdio) opens the local
-  # console, and a device build listens on DEFAULT_PORT -- so a device
-  # script needs nothing but binding.debugger. On R2P2, MRDEBUG_PORT comes
-  # from /etc/config.yml's `env: mrdebug_port:` or the shell's `export`.
+  # console; any other MRDEBUG_PORT -> TCP listener on it. With neither,
+  # a build that has a local console opens it -- a host (Transport::Stdio),
+  # or a device built with the mrdebug-console gem (UI::Console) -- and any
+  # other device build listens on DEFAULT_PORT. Either way a device script
+  # needs nothing but binding.debugger. On R2P2, MRDEBUG_PORT comes from
+  # /etc/config.yml's `env: mrdebug_port:` or the shell's `export`.
   def self.autostart
     sock = default_sock
     return listen_unix(sock) if sock
@@ -50,13 +51,13 @@ module MRDebug
   end
 
   def self.local_by_default?
-    Transport.const_defined?(:Stdio)
+    Transport.const_defined?(:Stdio) || UI.const_defined?(:Console)
   end
 
   # The debugger on this process's own console. Overridden by the
   # mrdebug-console gem (the device's raw console, via picoruby-editor).
   def self.attach_local
-    return attach_stdio if local_by_default?
+    return attach_stdio if Transport.const_defined?(:Stdio)
     notice("mrdebug: no local console in this build (add the mrdebug-console gem); " \
            "listening on port #{DEFAULT_PORT} instead")
     listen_tcp(DEFAULT_PORT)
