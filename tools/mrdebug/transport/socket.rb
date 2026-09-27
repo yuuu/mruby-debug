@@ -1,7 +1,11 @@
 module MRDebug
   module Transport
     # #sysread avoids an ESPIPE from #write's internal lseek; picoruby-socket
-    # only has #readpartial.
+    # only has #readpartial. Writes go through send(MSG_NOSIGNAL) where
+    # mruby-socket has it: a plain write to a peer-closed socket raises
+    # SIGPIPE on POSIX, killing the debuggee instead of raising EPIPE.
+    # picoruby-socket has no such flag (its POSIX port still gets SIGPIPE;
+    # lwIP on a device has no signals).
     class Socket < Base
       attr_reader :io
 
@@ -9,6 +13,7 @@ module MRDebug
         @io = io
         @buf = ''
         @read_method = io.respond_to?(:sysread) ? :sysread : :readpartial
+        @send_flags = nosignal_flags(io)
       end
 
       def gets
@@ -29,11 +34,24 @@ module MRDebug
       end
 
       def write(str)
-        @io.write(str)
+        @send_flags ? @io.send(str, @send_flags) : @io.write(str)
       end
 
       def close
         @io.close
+      end
+
+      def detach_on_close?
+        true
+      end
+
+      private
+
+      # Not io.respond_to?(:send) -- every object has Kernel#send.
+      def nosignal_flags(io)
+        return nil unless defined?(::Socket) && ::Socket.const_defined?(:MSG_NOSIGNAL)
+        return nil unless defined?(::BasicSocket) && io.is_a?(::BasicSocket)
+        ::Socket::MSG_NOSIGNAL
       end
     end
 

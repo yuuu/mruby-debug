@@ -86,3 +86,29 @@ ensure
   server.close if server
   File.delete(path) if path && File.exist?(path)
 end
+
+assert('Transport::Socket#write to a peer-closed socket raises instead of killing the process (SIGPIPE)') do
+  server = TCPServer.new('127.0.0.1', 0)
+  port = server.addr[1]
+
+  client = TCPSocket.new('127.0.0.1', port)
+  device = MRDebug::Transport::TCP.new(server.accept)
+  client.close
+  client = nil
+
+  # The first write after the peer closed can still succeed (it's what
+  # draws the RST); a later one fails. Without MSG_NOSIGNAL that failure
+  # is SIGPIPE, which would take down mrbtest itself.
+  raised = false
+  begin
+    5.times { device.write("Stop: foo.rb:1\n") }
+  rescue StandardError
+    raised = true
+  end
+  assert_true raised
+  assert_true device.detach_on_close?
+ensure
+  client.close if client
+  device.close if device
+  server.close
+end

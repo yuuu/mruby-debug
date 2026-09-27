@@ -48,7 +48,9 @@ module MRDebug
     end
   end
 
-  def self.autostart
+  # Replaces tools/mrdebug/device.rb's attach_local (this gem loads later,
+  # as a dependent): what MRDEBUG_PORT=console selects on a device.
+  def self.attach_local
     session = Session.new
     session.ui = UI::Console.new
     self.session = session

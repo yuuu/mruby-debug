@@ -178,9 +178,11 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   Depends on `mrdebug` (via `gemdir:` to the parent directory),
   `picoruby-editor` and `picoruby-io-console`. `MRDebug::UI::Console` reads
   the device's own raw console through `Editor::Line`, and its
-  `MRDebug.autostart` overrides `tools/mrdebug/device.rb`'s (it loads
-  later as a dependent), so a device with this gem opens the console on
-  the first `binding.debugger` rather than looking at `MRDEBUG_PORT`.
+  `MRDebug.attach_local` overrides `tools/mrdebug/device.rb`'s (it loads
+  later as a dependent). Only `attach_local` is overridden, never
+  `autostart`, so the choice of transport stays in one place: this
+  console opens only for `MRDEBUG_PORT=console` (R2P2: `mrdebug_port:
+  console` in `/etc/config.yml`); otherwise a device listens on TCP.
 - **`src/hook.c`** — the VM hook. `struct mrdebug_hook hook` (file-static)
   holds everything: the installed session, whether the hook is armed,
   same-line dedup state (`prev_irep`/`prev_line`), the dedicated debugger
@@ -399,24 +401,38 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   the VM hook, freezing the `(mrdbg)` loop) once a read has more than one
   line buffered ahead, since `IO#write` on a dual-purpose fd tries to
   `lseek` back by the leftover count first.
-- **`tools/mrdebug/device.rb`** (host builds only) — `MRDebug.listen_tcp`/
-  `.listen_unix`: device-side setup — `Session.new`, block for the CLI to
-  connect, wire the connection to `LocalConsole`. Also `MRDebug.autostart`
-  (overriding the core no-op), which `MRDebug.break` calls on the first
-  `binding.debugger` hit when no session exists — a three-way branch on the
-  environment: `MRDEBUG_SOCK` → `listen_unix`; else `MRDEBUG_PORT` →
-  `listen_tcp` on it; else `attach_stdio` (a `Session` whose `LocalConsole`
-  talks to this process's own `STDIN`/`STDOUT` — no socket, no separate
-  `mrdbg` CLI, the common local case and what makes README's Usage
-  example work with zero setup). This is what lets a script carry nothing
-  but `binding.debugger`. It's a one-shot by construction (`@session.nil?`
-  gates it); a listener bind failure propagates out of `binding.debugger`
-  rather than being swallowed. `DEFAULT_PORT` (4711, rdbg's convention) is
-  only the fallback for a *port that was asked for but unspecified* — a
-  bare `MRDebug.listen_tcp`, or `mrdbg` with no args — not for
-  `autostart`, which goes to stdio when `MRDEBUG_PORT` is unset.
-  `env_value` tolerates a build without `mruby-env` (`defined?(ENV)`) and
-  treats a blank value as unset.
+- **`tools/mrdebug/device.rb`** (host builds, and PicoRuby firmware) —
+  `MRDebug.listen_tcp`/`.listen_unix`: device-side setup — print
+  `mrdebug: waiting for a debugger on …` (`MRDebug.notice`, stderr where
+  there is one), `Session.new`, block for the CLI to connect, wire the
+  connection to `LocalConsole`. Also `MRDebug.autostart` (overriding the
+  core no-op), which `MRDebug.break` calls whenever a `binding.debugger`
+  hit finds no session: `MRDEBUG_SOCK` → `listen_unix`; `MRDEBUG_PORT=console`
+  → `attach_local`; any other `MRDEBUG_PORT` → `listen_tcp(default_port)`
+  (a non-numeric value falls back to `DEFAULT_PORT`); unset → `attach_local`
+  on a build with `Transport::Stdio` (host: `attach_stdio`, the zero-setup
+  local prompt README's Usage example relies on), else `listen_tcp(DEFAULT_PORT)`
+  (a device: the script carries nothing but `binding.debugger`, and on
+  R2P2 `MRDEBUG_PORT` comes from `/etc/config.yml`'s `env: mrdebug_port:`
+  or the shell's `export`). `attach_local` is the one seam the
+  `mrdebug-console` gem overrides. A listener bind failure propagates out
+  of `binding.debugger` rather than being swallowed. `env_value` tolerates
+  a build without `mruby-env` (`defined?(ENV)`) and treats a blank value
+  as unset.
+- **Re-attach** (`MRDebug.detach`, `mrblib/mrdebug.rb`): when a socket
+  client goes away (EOF, or a failed write — `LocalConsole#lost`, gated on
+  `Transport#detach_on_close?`), the stop resumes, the session is dropped
+  and `Hook.uninstall`ed (safe mid-callback: it only clears state, and
+  `run_in_dbg_context`'s tail then leaves the hook disarmed), so the next
+  `binding.debugger` autostarts and waits for a new client. `MRDebug.break`
+  loops for that: a direct stop whose session was detached *during* it
+  stops again at the same place for whoever connects next. Stdio doesn't
+  detach (EOF there means piped input ran out, and re-autostarting would
+  spin). `Transport::Socket#write` uses `send(MSG_NOSIGNAL)` where
+  mruby-socket defines it — a plain write to a peer-closed socket raises
+  SIGPIPE and kills the debuggee on POSIX. picoruby-socket has no such
+  flag, so the PicoRuby POSIX host build can still die that way (lwIP on a
+  device has no signals).
 - **`tools/mrdbg/mrdbg_cli_main.c`** (host builds only) — the `mrdbg`
   command's C launcher; mruby builds a `spec.bins` entry only from
   `tools/<bin>/*.c`, so it sits apart from the Ruby under `tools/mrdebug/`.

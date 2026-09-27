@@ -13,6 +13,13 @@ module MRDebug
       def close
       end
 
+      # Whether losing the peer should end the session (MRDebug.detach), so
+      # the next binding.debugger can take a new one. True for a listening
+      # socket; false for stdio, where EOF just means the input ran out.
+      def detach_on_close?
+        false
+      end
+
       protected
 
       # Not String#chomp -- mruby-string-ext misbehaves under mrbtest.

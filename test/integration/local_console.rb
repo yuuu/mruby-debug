@@ -125,3 +125,92 @@ assert('LocalConsole up/down/frame select a caller frame, and print evaluates ag
 ensure
   MRDebug::Hook.uninstall
 end
+
+# A Loopback that behaves like a socket: losing the peer should end the
+# session so the next binding.debugger can wait for a new client.
+class LocalConsoleSocketLikeLoopback < MRDebug::Transport::Loopback
+  attr_reader :closed
+
+  def initialize(input_lines = [], fail_writes: false)
+    super(input_lines)
+    @fail_writes = fail_writes
+    @closed = false
+  end
+
+  def write(str)
+    raise IOError, 'peer closed' if @fail_writes
+    super
+  end
+
+  def close
+    @closed = true
+  end
+
+  def detach_on_close?
+    true
+  end
+end
+
+# MRDebug.break stops again after a detach; autostart is stubbed to hand out
+# the queued sessions (then none) so no real stdio or socket is touched.
+def local_console_with_sessions(sessions)
+  saved_autostart = MRDebug.method(:autostart)
+  started = []
+  MRDebug.define_singleton_method(:autostart) do
+    s = sessions.shift
+    if s
+      started << s
+      MRDebug.session = s
+    end
+  end
+  MRDebug.instance_variable_set(:@session, nil)
+  yield started
+ensure
+  MRDebug.define_singleton_method(:autostart) { saved_autostart.call }
+  MRDebug.instance_variable_set(:@session, nil)
+  MRDebug::Hook.uninstall
+end
+
+assert('LocalConsole on a socket-like transport: EOF closes it and detaches the session') do
+  gone = LocalConsoleSocketLikeLoopback.new # EOF straight away
+  gone_session = MRDebug::Session.new
+  gone_session.ui = MRDebug::UI::LocalConsole.new(gone)
+
+  local_console_with_sessions([gone_session]) do |started|
+    binding.debugger
+    assert_equal [gone_session], started
+    assert_true gone.closed
+    assert_nil MRDebug.session
+  end
+end
+
+assert('LocalConsole treats a failing write like EOF: detached, no exception reaches the script') do
+  broken = LocalConsoleSocketLikeLoopback.new(['c'], fail_writes: true)
+  session = MRDebug::Session.new
+  session.ui = MRDebug::UI::LocalConsole.new(broken)
+
+  local_console_with_sessions([session]) do
+    binding.debugger
+    assert_true broken.closed
+    assert_nil MRDebug.session
+  end
+end
+
+assert('binding.debugger stops again for the next client after the previous one went away') do
+  gone = LocalConsoleSocketLikeLoopback.new
+  gone_session = MRDebug::Session.new
+  gone_session.ui = MRDebug::UI::LocalConsole.new(gone)
+
+  fresh = LocalConsoleSocketLikeLoopback.new(['c'])
+  fresh_session = MRDebug::Session.new
+  fresh_session.ui = MRDebug::UI::LocalConsole.new(fresh)
+
+  local_console_with_sessions([gone_session, fresh_session]) do |started|
+    line = __LINE__; binding.debugger
+    assert_equal [gone_session, fresh_session], started
+    # The same stop, shown to the client that connected next.
+    assert_equal "Stop: #{__FILE__}:#{line}\n", fresh.output[0]
+    assert_false fresh.closed
+    assert_true MRDebug.session.equal?(fresh_session)
+  end
+end
