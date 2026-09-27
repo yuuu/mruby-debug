@@ -135,9 +135,6 @@ the `DAP bridge listening on` line before attaching. If the device can't be
 reached, `mrdbg` exits nonzero and the debug session doesn't start. The
 bridge exits when the session ends, so each F5 starts a fresh one. Start the
 script on the device first, so that it's waiting in `binding.debugger`.
-The `pattern` never matches, but VS Code drops a problem matcher whose
-pattern names no `file`/`message`/`location` group, and then refuses to
-wait on the task.
 
 `.vscode/tasks.json`:
 
@@ -153,7 +150,7 @@ wait on the task.
       "isBackground": true,
       "problemMatcher": {
         "owner": "mrdbg",
-        "pattern": { "regexp": "^never-matches$", "file": 1, "location": 2, "message": 3 },
+        "pattern": { "regexp": "^never-matches$" },
         "background": {
           "activeBegins": true,
           "beginsPattern": "^Connected to device",
