@@ -143,6 +143,11 @@ the device, so pipes, logs and the DAP bridge always see plain text.
 stdout is a TTY); `NO_COLOR` turns it off, and `MRDEBUG_COLOR=always|never`
 sets the default (also for `binding.debugger` run without `mrdbg`).
 
+The on-device console (the `console/` gem) colors the same way, but only
+when `MRDEBUG_COLOR=always` (on R2P2: `mrdebug_color: always` under `env:` in
+`/etc/config.yml`, like `mrdebug_port`), since a serial terminal can't be
+probed for ANSI support. Its `(mrdbg) ` prompt stays uncolored.
+
 ### Connecting from VS Code
 
 `mrdbg` can bridge a DAP client to a listening device. Start the bridge:

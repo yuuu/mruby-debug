@@ -183,7 +183,11 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   `autostart`, so the choice of transport stays in one place: with this
   gem the console is the default, and a numeric `MRDEBUG_PORT` (R2P2:
   `mrdebug_port: 4711` in `/etc/config.yml`) makes the device listen on
-  TCP instead.
+  TCP instead. It also colors its output (`Colorizer.colorize_line`, the
+  `tools/mrdebug/{ruby_highlighter,colorizer}.rb` files its `mrbgem.rake`
+  adds to its own `rbfiles`) when `MRDEBUG_COLOR=always` — opt-in only
+  (`Colorizer.enabled?(nil)` skips the TTY probe), and not the prompt, since
+  `Editor::Line` sizes it by character count.
 - **`src/hook.c`** — the VM hook. `struct mrdebug_hook hook` (file-static)
   holds everything: the installed session, whether the hook is armed,
   same-line dedup state (`prev_irep`/`prev_line`), the dedicated debugger
