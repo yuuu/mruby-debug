@@ -133,6 +133,16 @@ env:
 `export MRDEBUG_PORT=4711` in the R2P2 shell does the same for that
 session.
 
+### Colors
+
+On a terminal, `mrdbg` and the local `(mrdbg)` prompt color their output:
+stop banners, the prompt, errors, `bt` frame numbers, and `list` output
+with Ruby syntax highlighting. Colors are added on the host only, never on
+the device, so pipes, logs and the DAP bridge always see plain text.
+`--color auto|always|never` picks explicitly (default `auto`: only when
+stdout is a TTY); `NO_COLOR` turns it off, and `MRDEBUG_COLOR=always|never`
+sets the default (also for `binding.debugger` run without `mrdbg`).
+
 ### Connecting from VS Code
 
 `mrdbg` can bridge a DAP client to a listening device. Start the bridge:

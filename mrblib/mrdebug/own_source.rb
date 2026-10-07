@@ -16,6 +16,9 @@ module MRDebug
       'mrblib/mrdebug/transport/loopback.rb',
       'mrblib/mrdebug/ui.rb',
       'mrblib/mrdebug/watch_var_breakpoint.rb',
+      'tools/mrdebug/colorizer.rb',
+      'tools/mrdebug/ruby_highlighter.rb',
+      'tools/mrdebug/transport/colored.rb',
       'tools/mrdebug/transport/stdio.rb',
       'tools/mrdebug/ui/local_console.rb',
     ]

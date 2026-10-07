@@ -138,3 +138,9 @@ assert('CLI.run_demo_session wires RemoteSession, not the Session, into LocalCon
 ensure
   MRDebug::Hook.uninstall
 end
+
+assert('CLI::Options parses --color in both spellings') do
+  assert_equal 'always', MRDebug::CLI::Options.parse(['--color', 'always']).color
+  assert_equal 'never', MRDebug::CLI::Options.parse(['--color=never']).color
+  assert_nil MRDebug::CLI::Options.parse([]).color
+end
