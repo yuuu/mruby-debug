@@ -10,11 +10,12 @@ module MRDebug
     # driven and host-only.
     class Console < Base
       def initialize
-        # The device console is usually a serial terminal, not a TTY we can
-        # probe, so colors are opt-in (MRDEBUG_COLOR=always); passing no io
-        # skips the TTY check. The prompt itself stays plain: Editor::Line
-        # sizes it by character count.
-        @color = Colorizer.enabled?(nil)
+        # On by default (a serial terminal can't be probed for ANSI support,
+        # so there is no TTY check); MRDEBUG_COLOR=never or NO_COLOR turns it
+        # off. The prompt itself stays plain: Editor::Line sizes it by
+        # character count.
+        mode = Colorizer.env('MRDEBUG_COLOR')
+        @color = mode == 'always' || (mode != 'never' && Colorizer.env('NO_COLOR').nil?)
         @editor = Class.new(Editor::Line) do
           def initialize
             @height, @width = 24, 80

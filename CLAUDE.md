@@ -185,8 +185,8 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   `mrdebug_port: 4711` in `/etc/config.yml`) makes the device listen on
   TCP instead. It also colors its output (`Colorizer.colorize_line`, the
   `tools/mrdebug/{ruby_highlighter,colorizer}.rb` files its `mrbgem.rake`
-  adds to its own `rbfiles`) when `MRDEBUG_COLOR=always` — opt-in only
-  (`Colorizer.enabled?(nil)` skips the TTY probe), and not the prompt, since
+  adds to its own `rbfiles`) by default (no TTY probe — a serial terminal can't be probed;
+  `MRDEBUG_COLOR=never` or `NO_COLOR` turns it off), and not the prompt, since
   `Editor::Line` sizes it by character count.
 - **`src/hook.c`** — the VM hook. `struct mrdebug_hook hook` (file-static)
   holds everything: the installed session, whether the hook is armed,

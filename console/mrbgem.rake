@@ -7,8 +7,8 @@ MRuby::Gem::Specification.new('mrdebug-console') do |spec|
   spec.add_dependency 'picoruby-editor', core: 'picoruby-editor'
   spec.add_dependency 'picoruby-io-console', core: 'picoruby-io-console'
 
-  # The host-side colorizer, reused on the device's own console (opt-in via
-  # MRDEBUG_COLOR=always, since the serial terminal may not speak ANSI).
+  # The host-side colorizer, reused on the device's own console (on by
+  # default; MRDEBUG_COLOR=never or NO_COLOR turns it off).
   # Added here rather than in ../mrbgem.rake so a firmware without this gem
   # doesn't carry it.
   spec.rbfiles += %w[ruby_highlighter.rb colorizer.rb]
