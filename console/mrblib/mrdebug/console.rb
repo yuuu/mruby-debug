@@ -10,6 +10,12 @@ module MRDebug
     # driven and host-only.
     class Console < Base
       def initialize
+        # On by default (a serial terminal can't be probed for ANSI support,
+        # so there is no TTY check); MRDEBUG_COLOR=never or NO_COLOR turns it
+        # off. The prompt itself stays plain: Editor::Line sizes it by
+        # character count.
+        mode = Colorizer.env('MRDEBUG_COLOR')
+        @color = mode == 'always' || (mode != 'never' && Colorizer.env('NO_COLOR').nil?)
         @editor = Class.new(Editor::Line) do
           def initialize
             @height, @width = 24, 80
@@ -23,8 +29,8 @@ module MRDebug
       end
 
       def on_stop(session)
-        puts session.stop_banner
-        session.display_lines.each { |expr, result| puts "#{expr} = #{result}" }
+        say session.stop_banner
+        session.display_lines.each { |expr, result| say "#{expr} = #{result}" }
 
         prev_term = ENV['TERM']
         ENV['TERM'] = 'dumb'
@@ -37,13 +43,19 @@ module MRDebug
             editor.save_history
             buffer.clear
             output, action = Command.dispatch(session, line)
-            output.each { |l| puts l }
+            output.each { |l| say l }
             break if action == :resume
           end
         end
       ensure
         STDIN.cooked!
         ENV['TERM'] = prev_term
+      end
+
+      private
+
+      def say(line)
+        puts @color ? Colorizer.colorize_line(line) : line
       end
     end
   end

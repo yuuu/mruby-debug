@@ -26,9 +26,15 @@ module MRDebug
   # The (mrdbg) prompt on this process's own STDIN/STDOUT -- no socket, no CLI.
   def self.attach_stdio
     session = Session.new
-    session.ui = UI::LocalConsole.new
+    session.ui = UI::LocalConsole.new(stdio_transport)
     self.session = session
     session
+  end
+
+  # Stdio, colored when STDOUT is a TTY (the Colored decorator is host-only).
+  def self.stdio_transport
+    stdio = Transport::Stdio.new
+    Transport.const_defined?(:Colored) ? Transport::Colored.wrap(stdio) : stdio
   end
 
   # MRDebug.break calls this whenever a binding.debugger hit finds no

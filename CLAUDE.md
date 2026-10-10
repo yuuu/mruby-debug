@@ -183,7 +183,11 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   `autostart`, so the choice of transport stays in one place: with this
   gem the console is the default, and a numeric `MRDEBUG_PORT` (R2P2:
   `mrdebug_port: 4711` in `/etc/config.yml`) makes the device listen on
-  TCP instead.
+  TCP instead. It also colors its output (`Colorizer.colorize_line`, the
+  `tools/mrdebug/{ruby_highlighter,colorizer}.rb` files its `mrbgem.rake`
+  adds to its own `rbfiles`) by default (no TTY probe — a serial terminal can't be probed;
+  `MRDEBUG_COLOR=never` or `NO_COLOR` turns it off), and not the prompt, since
+  `Editor::Line` sizes it by character count.
 - **`src/hook.c`** — the VM hook. `struct mrdebug_hook hook` (file-static)
   holds everything: the installed session, whether the hook is armed,
   same-line dedup state (`prev_irep`/`prev_line`), the dedicated debugger
@@ -492,6 +496,20 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   breakpoint requests made meanwhile, applying them in `#stop_messages`
   (as `breakpoint` `changed` events) — so they only take effect from the
   next stop on. A device EOF becomes a `terminated` event (`DapServer`).
+- **`tools/mrdebug/colorizer.rb`/`ruby_highlighter.rb`/`transport/colored.rb`**
+  (host builds only) — ANSI colors, applied **only on the host, at display
+  time**: `Command`/device output stays plain because `DapBridge` parses it
+  and non-TTY readers must not see escapes. `Colorizer` recognizes lines by
+  prefix (stop banners, `Breakpoint N added`, `eval error: `, `#N` frames,
+  `list`'s `=> N  code`) and runs `list` code through `RubyHighlighter`
+  (hand-rolled single-line scanner, no Regexp, no string-ext). `#feed`
+  accepts arbitrary chunks, holds a partial line, and colors the newline-less
+  `(mrdbg) ` prompt once whole. `CLI.relay` feeds device bytes through it;
+  `Transport::Colored` is the same as a `Transport` decorator for
+  `MRDebug.attach_stdio` (`stdio_transport`). `Colorizer.enabled?`: `--color`
+  / `MRDEBUG_COLOR`, then `NO_COLOR`/`TERM=dumb`, then `io.tty?`. `cat` and
+  `p` output aren't colored (no way to tell them from other text). Add new
+  files to `OwnSource::FILES`.
 - **`tools/mrdebug/ui/local_console.rb`** (host builds only) —
   `MRDebug::UI::LocalConsole`: the `(mrdbg)` prompt, one `STDIN.gets` (now via
   a `Transport`, defaulting to `Stdio`) per command. Reading exactly one

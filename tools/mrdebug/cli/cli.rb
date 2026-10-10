@@ -52,6 +52,8 @@ module MRDebug
       "  --sock-path PATH   connect to a device listening on a Unix socket\n" \
       "  --port PORT --dap-port DAP_PORT   bridge a DAP client (e.g. VS Code's\n" \
       "                     vscode-rdbg, attach) on DAP_PORT to a device on PORT\n" \
+      "  --color auto|always|never   color the output (default auto: only on a TTY;\n" \
+      "                     NO_COLOR disables, MRDEBUG_COLOR sets the default)\n" \
       "  --serial DEV, --open   (not supported yet)\n" \
       '  --help, --version'
     end
@@ -68,7 +70,7 @@ module MRDebug
     def self.connect_tcp(options, transport)
       remote = MRDebug::Transport::TCP.connect(options.host, options.port)
       transport.write("Connected to #{options.host}:#{options.port}\n")
-      relay(remote.io, transport)
+      relay(remote.io, transport, STDIN, STDOUT, colorizer_for(options))
       true
     rescue => e
       transport.write("connect #{options.host}:#{options.port} failed: #{e.class}: #{e.message}\n")
@@ -100,7 +102,7 @@ module MRDebug
     def self.connect_unix(options, transport)
       remote = MRDebug::Transport::Unix.connect(options.sock_path)
       transport.write("Connected to #{options.sock_path}\n")
-      relay(remote.io, transport)
+      relay(remote.io, transport, STDIN, STDOUT, colorizer_for(options))
       true
     rescue => e
       transport.write("connect #{options.sock_path} failed: #{e.class}: #{e.message}\n")
@@ -112,14 +114,18 @@ module MRDebug
     # Raw byte pump (the device's prompt has no trailing newline, so
     # #gets would block forever). Stops watching local_in on EOF rather
     # than ending the relay -- only the device closing its end does that.
-    def self.relay(remote_io, transport, local_in = STDIN, local_out = STDOUT)
+    def self.colorizer_for(options, out = STDOUT)
+      MRDebug::Colorizer.enabled?(out, options.color) ? MRDebug::Colorizer.new : nil
+    end
+
+    def self.relay(remote_io, transport, local_in = STDIN, local_out = STDOUT, colorizer = nil)
       local_open = true
       loop do
         watch = local_open ? [remote_io, local_in] : [remote_io]
         ready, = IO.select(watch)
         next unless ready
         if ready.include?(remote_io)
-          drain(remote_io, local_out)
+          drain(remote_io, local_out, colorizer)
         end
         if local_open && ready.include?(local_in)
           begin
@@ -130,13 +136,15 @@ module MRDebug
         end
       end
     rescue EOFError
+      local_out.write(colorizer.finish) if colorizer
       transport.write("\n(connection closed)\n")
     end
 
     # A ready select() doesn't mean one read drains it all.
-    def self.drain(io, out)
+    def self.drain(io, out, colorizer = nil)
       loop do
-        out.write(read_some(io))
+        chunk = read_some(io)
+        out.write(colorizer ? colorizer.feed(chunk) : chunk)
         out.flush
         break unless IO.select([io], nil, nil, 0)
       end
