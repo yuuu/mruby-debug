@@ -1,7 +1,7 @@
 module MRDebug
   module Command
     VERBS = {
-      '' => :continue, 'c' => :continue, 'continue' => :continue,
+      'c' => :continue, 'continue' => :continue,
       's' => :step, 'step' => :step,
       'n' => :next, 'next' => :next,
       'fin' => :finish, 'finish' => :finish,
@@ -54,7 +54,6 @@ module MRDebug
         'Usage: continue',
         '',
         'Continue program stopped by a breakpoint.',
-        'An empty line is equivalent to \'continue\'.',
       ]],
       [:delete, 'd[elete]', 'Delete breakpoints', [
         'Usage: delete [bpno]',
@@ -139,6 +138,8 @@ module MRDebug
     # Returns [output_lines, :stay | :resume]; never prints (the UI does).
     def self.dispatch(session, line)
       verb, arg = split(line)
+      # An empty line just prompts again (never resumes by accident).
+      return [[], :stay] if verb.empty?
       case VERBS[verb]
       when :continue
         session.run_mode!
@@ -376,7 +377,6 @@ module MRDebug
       end
       name = trim(arg)
       verb = VERBS[name]
-      # '' is also a VERBS key (continue), but blank? handled it above.
       HELP.each { |v, _, _, long| return long if v == verb }
       ["Invalid command \"#{name}\". Try \"help\"."]
     end

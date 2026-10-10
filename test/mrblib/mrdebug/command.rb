@@ -14,8 +14,11 @@ assert('Command.dispatch continue/step/next resume without output') do
   out, action = MRDebug::Command.dispatch(session, 'n')
   assert_equal :resume, action
 
-  out, action = MRDebug::Command.dispatch(session, '') # empty input == continue
-  assert_equal :resume, action
+  out, action = MRDebug::Command.dispatch(session, '') # empty input: prompt again
+  assert_equal [[], :stay], [out, action]
+
+  out, action = MRDebug::Command.dispatch(session, '   ')
+  assert_equal [[], :stay], [out, action]
 ensure
   MRDebug::Hook.uninstall
 end

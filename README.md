@@ -66,7 +66,7 @@ script.rb` also works).
 
 | Command | Alias | Description |
 | --- | --- | --- |
-| `continue` | `c`, empty input | Resume until the next breakpoint |
+| `continue` | `c` | Resume until the next breakpoint |
 | `step [<n>]` | `s` | Stop at the next executed line, entering calls |
 | `next [<n>]` | `n` | Stop at the next line in the same or a shallower frame |
 | `finish` | `fin` | Run until the selected frame returns; stop at the call site in its caller |
