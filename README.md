@@ -101,7 +101,7 @@ MRDEBUG_PORT=4711 mruby script.rb       # or MRDEBUG_SOCK=/tmp/mrdebug.sock
 ```
 
 ```sh
-mrdbg                                    # reads MRDEBUG_PORT / MRDEBUG_SOCK
+mrdbg                                    # reads MRDEBUG_HOST / MRDEBUG_PORT / MRDEBUG_SOCK
 mrdbg --host 192.168.0.10 --port 4711    # e.g. a board on the network
 ```
 
@@ -151,13 +151,43 @@ uncolored.
 
 ### Connecting from VS Code
 
-`mrdbg` can bridge a DAP client to a listening device. Start the bridge:
+`mrdbg` bridges [vscode-rdbg](https://marketplace.visualstudio.com/items?itemName=KoichiSasada.vscode-rdbg)
+to a listening device. Only `.vscode/launch.json` is needed: with `rdbgPath`
+pointing at `mrdbg`, vscode-rdbg starts the bridge on F5 and attaches to it
+once it's ready.
+
+```json
+{
+  "type": "rdbg",
+  "request": "launch",
+  "name": "Debug on device",
+  "rdbgPath": "/path/to/build/host/bin/mrdbg",
+  "debugPort": "localhost:12345",
+  "script": "${file}",
+  "env": { "MRDEBUG_HOST": "192.168.0.10", "MRDEBUG_PORT": "4711" }
+}
+```
+
+- `debugPort` is where the bridge listens for VS Code. It's required, and
+  must be a TCP port.
+- `env` tells the bridge where the device is, as for `mrdbg` with no
+  args: `MRDEBUG_SOCK`, else `MRDEBUG_HOST` (default `127.0.0.1`) and
+  `MRDEBUG_PORT` (default 4711).
+- `script` is required by vscode-rdbg but not run: start the script on the
+  device first, so that it's waiting in `binding.debugger`. If the device
+  can't be reached, VS Code shows the error and the session doesn't start.
+- The bridge exits when the session ends, so each F5 starts a fresh one.
+
+This works because `mrdbg --open` accepts the command line vscode-rdbg gives
+`rdbg` (`--open --host=H --port=P -- ruby script`) and prints the
+`DEBUGGER: ...` lines it waits for.
+
+To run the bridge yourself instead, start it and use an `attach`
+configuration:
 
 ```sh
 mrdbg --host 192.168.0.10 --port 4711 --dap-port 12345
 ```
-
-Then attach with [vscode-rdbg](https://marketplace.visualstudio.com/items?itemName=KoichiSasada.vscode-rdbg):
 
 ```json
 {
@@ -165,51 +195,6 @@ Then attach with [vscode-rdbg](https://marketplace.visualstudio.com/items?itemNa
   "request": "attach",
   "name": "Attach to mrdbg",
   "debugPort": "localhost:12345"
-}
-```
-
-To have VS Code start the bridge itself, run `mrdbg` as a background task
-and name it as the attach configuration's `preLaunchTask`. VS Code waits for
-the `DAP bridge listening on` line before attaching. If the device can't be
-reached, `mrdbg` exits nonzero and the debug session doesn't start. The
-bridge exits when the session ends, so each F5 starts a fresh one. Start the
-script on the device first, so that it's waiting in `binding.debugger`.
-
-`.vscode/tasks.json`:
-
-```json
-{
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "mrdbg bridge",
-      "type": "process",
-      "command": "/path/to/build/host/bin/mrdbg",
-      "args": ["--host", "192.168.0.10", "--port", "4711", "--dap-port", "12345"],
-      "isBackground": true,
-      "problemMatcher": {
-        "owner": "mrdbg",
-        "pattern": { "regexp": "^never-matches$" },
-        "background": {
-          "activeBegins": true,
-          "beginsPattern": "^Connected to device",
-          "endsPattern": "^DAP bridge listening on"
-        }
-      }
-    }
-  ]
-}
-```
-
-`.vscode/launch.json`:
-
-```json
-{
-  "type": "rdbg",
-  "request": "attach",
-  "name": "Attach to device",
-  "debugPort": "localhost:12345",
-  "preLaunchTask": "mrdbg bridge"
 }
 ```
 
