@@ -8,7 +8,7 @@ An interactive debugger for **mruby** (and PicoRuby's mruby VM). Put
 Add the gem to your mruby `build_config.rb`:
 
 ```ruby
-conf.gem github: 'yuuu/mruby-debug', branch: 'main'
+conf.gem github: 'yuuu/mruby-debug'
 ```
 
 On a PicoRuby device (e.g. R2P2-ESP32), either gem works. The on-device
@@ -16,7 +16,7 @@ console gem under `console/` pulls in `mrdebug` itself and adds the
 `(mrdbg)` prompt on the device's own console (see [On a device](#on-a-device)):
 
 ```ruby
-conf.gem github: 'yuuu/mruby-debug', branch: 'main', path: 'console'
+conf.gem github: 'yuuu/mruby-debug', path: 'console'
 ```
 
 On R2P2-ESP32, also raise the PicoRuby task stack to at least 32768 bytes
