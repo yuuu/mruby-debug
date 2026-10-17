@@ -7,7 +7,6 @@ module MRDebug
   # each complete line and holds the partial tail back, except for the
   # prompt, which never ends in a newline and is colored as soon as whole.
   class Colorizer
-    PROMPT = '(mrdbg) '.freeze
     RESET = "\e[0m".freeze
     BOLD_GREEN = "\e[1;32m".freeze
     BOLD_YELLOW = "\e[1;33m".freeze
@@ -16,7 +15,7 @@ module MRDebug
     RED = "\e[31m".freeze
     CYAN = "\e[36m".freeze
     DIM = "\e[2m".freeze
-    ERROR_PREFIXES = ['Invalid ', 'Cannot open ', 'Unknown ', 'Usage: ', 'No frame '].freeze
+    ERROR_PREFIXES = [Protocol::EVAL_ERROR, 'Invalid ', 'Cannot open ', 'Unknown ', Protocol::USAGE, 'No frame '].freeze
 
     # mode: 'always' / 'never' / anything else (auto: a TTY, unless
     # NO_COLOR is set or TERM is dumb). nil falls back to MRDEBUG_COLOR.
@@ -41,11 +40,11 @@ module MRDebug
     def self.colorize_line(line)
       list = list_line(line)
       return list if list
-      if prefix?(line, 'eval error: ') || ERROR_PREFIXES.any? { |p| prefix?(line, p) }
+      if ERROR_PREFIXES.any? { |p| prefix?(line, p) }
         "#{RED}#{line}#{RESET}"
-      elsif prefix?(line, 'Stop: ')
+      elsif prefix?(line, Protocol::STOP)
         "#{BOLD_CYAN}#{line}#{RESET}"
-      elsif prefix?(line, 'Breakpoint ') || prefix?(line, 'Watchpoint ')
+      elsif prefix?(line, Protocol::BREAKPOINT) || prefix?(line, Protocol::WATCHPOINT)
         breakpoint_line(line)
       elsif prefix?(line, '#') && frame_number_end(line)
         n = frame_number_end(line)
@@ -58,7 +57,7 @@ module MRDebug
     # "Breakpoint 1: f.rb:3" is a stop; "Breakpoint 1 added at ..." is a reply.
     def self.breakpoint_line(line)
       i = line.index(' ') + 1
-      i += 1 while RubyHighlighter.digit?(line[i])
+      i += 1 while Command.digit?(line[i])
       color = line[i] == ':' ? BOLD_YELLOW : GREEN
       "#{color}#{line}#{RESET}"
     end
@@ -66,7 +65,7 @@ module MRDebug
     # "#12 file:line" (bt/frame): the index of the space after "#<digits>".
     def self.frame_number_end(line)
       i = 1
-      i += 1 while RubyHighlighter.digit?(line[i])
+      i += 1 while Command.digit?(line[i])
       i > 1 && line[i] == ' ' ? i : nil
     end
 
@@ -75,7 +74,7 @@ module MRDebug
       marker = line[0, 2]
       return nil unless (marker == '=>' || marker == '  ') && line[2] == ' '
       i = 3
-      i += 1 while RubyHighlighter.digit?(line[i])
+      i += 1 while Command.digit?(line[i])
       return nil if i == 3 || line[i, 2] != '  '
       head = marker == '=>' ? "#{BOLD_GREEN}=>#{RESET}" : marker
       "#{head} #{DIM}#{line[3, i - 3]}#{RESET}  #{RubyHighlighter.highlight(line[(i + 2)..-1])}"
@@ -95,8 +94,8 @@ module MRDebug
         line = line[0, line.size - 1] unless cr.empty?
         out << self.class.colorize_line(line) << cr << "\n"
       end
-      if @buf == PROMPT
-        out << "#{BOLD_GREEN}#{PROMPT}#{RESET}"
+      if @buf == Protocol::PROMPT
+        out << "#{BOLD_GREEN}#{Protocol::PROMPT}#{RESET}"
         @buf = ''
       end
       out.join

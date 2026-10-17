@@ -13,7 +13,7 @@ module MRDebug
           return lost(session) unless say("#{expr} = #{result}\n")
         end
         loop do
-          return lost(session) unless say('(mrdbg) ')
+          return lost(session) unless say(Protocol::PROMPT)
           line = hear
           return lost(session) if line.nil?
           output, action = Command.dispatch(session, line)

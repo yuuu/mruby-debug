@@ -194,8 +194,8 @@ module MRDebug
       # "Stop: ..." -- the last is a step, or binding.debugger when the
       # device was let run with continue.
       def stop_reason(banner)
-        if banner[0, 11] == 'Breakpoint '
-          n = banner[11..-1].to_i
+        if prefix?(banner, Protocol::BREAKPOINT)
+          n = banner[Protocol::BREAKPOINT.size..-1].to_i
           fn = @function_bps.find { |_, num| num == n }
           return ['function breakpoint', [fn[0]]] if fn
           @line_bps.each_value do |entries|
@@ -204,7 +204,7 @@ module MRDebug
           end
           return ['breakpoint', nil]
         end
-        return ['data breakpoint', nil] if banner[0, 11] == 'Watchpoint '
+        return ['data breakpoint', nil] if prefix?(banner, Protocol::WATCHPOINT)
         [@last_resume == :continue ? 'breakpoint' : 'step', nil]
       end
 
@@ -298,10 +298,10 @@ module MRDebug
 
       # "Breakpoint N added at ..." -> N, else nil.
       def added_number(line)
-        return nil unless line[0, 11] == 'Breakpoint '
-        rest = line[11..-1]
+        return nil unless prefix?(line, Protocol::BREAKPOINT)
+        rest = line[Protocol::BREAKPOINT.size..-1]
         sp = rest.index(' ')
-        return nil unless sp && rest[sp, 10] == ' added at '
+        return nil unless sp && prefix?(rest[sp..-1], Protocol::ADDED_AT)
         rest[0, sp].to_i
       end
 
@@ -372,9 +372,12 @@ module MRDebug
 
       def eval_error?(out)
         first = out[0].to_s
-        prefix = MRDebug::Command::EVAL_ERROR_PREFIX
-        first[0, prefix.size] == prefix || first == MRDebug::Command::NO_BINDING ||
-          first[0, 6] == 'Usage:'
+        prefix?(first, Protocol::EVAL_ERROR) || first == Protocol::NO_BINDING ||
+          prefix?(first, Protocol::USAGE)
+      end
+
+      def prefix?(str, prefix)
+        str[0, prefix.size] == prefix
       end
 
       # One "Locals" scope per frame. variablesReference must be > 0, so

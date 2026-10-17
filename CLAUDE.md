@@ -393,6 +393,13 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
     file into a 1-indexed line array; `LIST_CONTEXT` (5) lines on either
     side of the target are then clamped to `1..line_count` and formatted
     with a `"  "`/`"=>"` marker prefix for the current line (see README).
+- **`mrblib/mrdebug/protocol.rb`** — `MRDebug::Protocol`: the `(mrdbg)`
+  text protocol's fixed strings (`PROMPT`, the `Breakpoint `/`Watchpoint `/
+  `Stop: ` banner prefixes, ` added at `, `Usage: `, `EVAL_ERROR`,
+  `NO_BINDING`). Both the producers (`Command`, the stop banners) and the
+  host-side readers (`DeviceLink`, `DapBridge`, `Colorizer`) use these
+  constants rather than literals, so changing the wording here keeps them
+  in step.
 - **`mrblib/mrdebug/ui.rb`** — `MRDebug::UI::Base`, the one-method contract
   (`#on_stop(session)`) a UI implements.
 - **`mrblib/mrdebug/transport.rb`** — `MRDebug::Transport::Base`:
@@ -476,7 +483,7 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   index) and parses their text output back; for the latter it goes
   through `@remote.command(line)` (`DeviceLink#command`, or
   `RemoteSession#command` via `Command.dispatch`). A failed `p` is told
-  apart from a value by `Command::EVAL_ERROR_PREFIX` (`"eval error: "`,
+  apart from a value by `Protocol::EVAL_ERROR` (`"eval error: "`,
   debug gem's wording) — don't change that output without updating
   `DapBridge#eval_error?`. Values aren't expandable (`variablesReference`
   0). `stepOut` is `frame 0` then `finish` (DAP's stepOut names no

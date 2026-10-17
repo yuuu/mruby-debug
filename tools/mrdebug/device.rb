@@ -73,16 +73,7 @@ module MRDebug
   # not a number (e.g. `console`).
   def self.default_port
     port = env_value('MRDEBUG_PORT')
-    port && digits?(port) ? port.to_i : DEFAULT_PORT
-  end
-
-  def self.digits?(str)
-    i = 0
-    while i < str.size
-      return false unless str[i] >= '0' && str[i] <= '9'
-      i += 1
-    end
-    true
+    port && Command.digits?(port) ? port.to_i : DEFAULT_PORT
   end
 
   # A one-line status on the device's own console (stderr where there is

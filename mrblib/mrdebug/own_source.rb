@@ -11,6 +11,7 @@ module MRDebug
       'mrblib/mrdebug/line_breakpoint.rb',
       'mrblib/mrdebug/method_breakpoint.rb',
       'mrblib/mrdebug/own_source.rb',
+      'mrblib/mrdebug/protocol.rb',
       'mrblib/mrdebug/session.rb',
       'mrblib/mrdebug/transport.rb',
       'mrblib/mrdebug/transport/loopback.rb',
