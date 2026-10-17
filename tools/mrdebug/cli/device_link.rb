@@ -37,7 +37,7 @@ module MRDebug
         loop do
           lines = extract_chunk
           return lines if lines
-          @buf += read_some(@io)
+          @buf += Transport.read_some(@io)
         end
       end
 
@@ -48,7 +48,7 @@ module MRDebug
       # (run_mode!/next_mode!/step_mode!) is the device's *next* stop
       # banner, not an ack -- there is no separate ack in this protocol.
       def poll
-        @buf += read_some(@io)
+        @buf += Transport.read_some(@io)
         try_extract
       end
 
@@ -128,10 +128,6 @@ module MRDebug
         head = @buf[0, idx]
         @buf = @buf[(idx + Protocol::PROMPT.size)..-1]
         head.empty? ? [] : head.split("\n")
-      end
-
-      def read_some(io)
-        io.respond_to?(:sysread) ? io.sysread(4096) : io.readpartial(4096)
       end
 
       # "#N file:line" -> [file, line], or nil for a non-matching line
