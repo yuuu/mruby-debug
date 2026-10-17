@@ -9,7 +9,7 @@ module MRDebug
     def result(bnd)
       bnd.eval(expr).inspect
     rescue Exception => e
-      "#{e.class}: #{e.message}"
+      MRDebug.error_text(e)
     end
   end
 end
