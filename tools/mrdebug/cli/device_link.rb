@@ -63,7 +63,8 @@ module MRDebug
         lines
       end
 
-      def send(cmd)
+      # Not #send: that would shadow Kernel#send.
+      def send_line(cmd)
         @io.write("#{cmd}\n")
       end
 
@@ -71,7 +72,7 @@ module MRDebug
       # its echo. Only valid while the device is stopped at its prompt --
       # a running device reads nothing, so DapBridge never calls this then.
       def command(cmd)
-        send(cmd)
+        send_line(cmd)
         wait_for_chunk
       end
 
@@ -101,19 +102,19 @@ module MRDebug
       # stop, delivered later via #poll from the caller's own select loop,
       # not a synchronous reply to this call.
       def run_mode!
-        send('c')
+        send_line('c')
       end
 
       def next_mode!(count = 1)
-        send(count > 1 ? "n #{count}" : 'n')
+        send_line(count > 1 ? "n #{count}" : 'n')
       end
 
       def step_mode!(count = 1)
-        send(count > 1 ? "s #{count}" : 's')
+        send_line(count > 1 ? "s #{count}" : 's')
       end
 
       def finish_mode!
-        send('finish')
+        send_line('finish')
       end
 
       def close
