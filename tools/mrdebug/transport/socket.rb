@@ -1,5 +1,12 @@
 module MRDebug
   module Transport
+    # Up to 4 KiB from a socket, whatever is available. #sysread, not
+    # buffered IO#gets/#read (see Socket below); picoruby-socket only has
+    # #readpartial. Raises EOFError once the peer has closed.
+    def self.read_some(io)
+      io.respond_to?(:sysread) ? io.sysread(4096) : io.readpartial(4096)
+    end
+
     # #sysread avoids an ESPIPE from #write's internal lseek; picoruby-socket
     # only has #readpartial. Writes go through send(MSG_NOSIGNAL) where
     # mruby-socket has it: a plain write to a peer-closed socket raises
@@ -12,7 +19,6 @@ module MRDebug
       def initialize(io)
         @io = io
         @buf = ''
-        @read_method = io.respond_to?(:sysread) ? :sysread : :readpartial
         @send_flags = nosignal_flags(io)
       end
 
@@ -24,7 +30,7 @@ module MRDebug
             @buf = @buf[(nl + 1)..-1]
             return strip_eol(line)
           end
-          @buf += @io.__send__(@read_method, 4096)
+          @buf += Transport.read_some(@io)
         end
       rescue EOFError
         return nil if @buf.empty?

@@ -1,5 +1,7 @@
 module MRDebug
   class WatchVarBreakpoint
+    include Breakpoint
+
     UNSET = Object.new
 
     attr_reader :expr
@@ -19,15 +21,11 @@ module MRDebug
     end
 
     def stop_banner(siblings, location)
-      "#{Protocol::WATCHPOINT}#{siblings.index(self) + 1}: #{location}"
+      "#{Protocol::WATCHPOINT}#{number_in(siblings)}: #{location}"
     end
 
     def to_s
       "watch: #{expr}"
-    end
-
-    def numbered_line(index)
-      "  ##{index} #{self}"
     end
 
     private
