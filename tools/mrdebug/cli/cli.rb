@@ -12,7 +12,7 @@ module MRDebug
       if options.help
         transport.write("#{usage}\n")
       elsif options.version
-        transport.write("mrdbg (interim build -- no wire protocol yet)\n")
+        transport.write("mrdbg #{MRDebug::VERSION}\n")
       elsif options.port && options.dap_port
         return connect_dap(options, transport)
       elsif options.port
@@ -24,27 +24,30 @@ module MRDebug
       elsif options.unsupported
         transport.write("#{unsupported_message(options.unsupported)}\n")
         return false
-      elsif argv.empty?
-        return connect_auto(transport)
+      elsif options.invalid
+        transport.write("mrdbg: unknown argument: #{options.invalid}\n#{usage}\n")
+        return false
       else
-        transport.write("(interim build: no remote device yet -- simulating a single local stop)\n")
-        run_demo_session(options, transport)
+        return connect_auto(options, transport)
       end
       true
     end
 
-    # `mrdbg` with no args: MRDEBUG_SOCK, else MRDEBUG_PORT, else 4711.
-    def self.connect_auto(transport)
+    # No --port/--sock-path: MRDEBUG_SOCK, else MRDEBUG_PORT, else 4711
+    # (--host and --color still apply).
+    def self.connect_auto(options, transport)
       sock = MRDebug.default_sock
       if sock
-        connect_unix(Options.parse(['--sock-path', sock]), transport)
+        options.sock_path = sock
+        connect_unix(options, transport)
       else
-        connect_tcp(Options.parse(['--port', MRDebug.default_port.to_s]), transport)
+        options.port = MRDebug.default_port
+        connect_tcp(options, transport)
       end
     end
 
     def self.usage
-      "Usage: mrdbg [file[:line]]\n" \
+      "Usage: mrdbg [options]\n" \
       "  (no args)         connect to MRDEBUG_SOCK, else 127.0.0.1:MRDEBUG_PORT (#{MRDebug::DEFAULT_PORT})\n" \
       "  --port PORT        connect to a device listening on 127.0.0.1:PORT\n" \
       "  --host HOST --port PORT   connect to a device listening on HOST:PORT\n" \
@@ -150,16 +153,6 @@ module MRDebug
         out.flush
         break unless IO.select([io], nil, nil, 0)
       end
-    end
-
-    def self.run_demo_session(options, transport)
-      session = MRDebug::Session.new
-      remote = MRDebug::RemoteSession.new(session)
-      session.on_line(options.file, options.line, binding)
-      MRDebug::UI::LocalConsole.new(transport).on_stop(remote)
-      transport.write("(session ended -- nothing more to run in this interim build)\n")
-    ensure
-      MRDebug::Hook.uninstall
     end
   end
 end

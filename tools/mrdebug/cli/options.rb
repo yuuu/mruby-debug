@@ -1,9 +1,11 @@
 module MRDebug
   module CLI
     # --port/--sock-path take a value, so parsing walks argv by index
-    # instead of a plain #each.
+    # instead of a plain #each. Anything unrecognized lands in #invalid.
     class Options
-      attr_reader :file, :line, :help, :version, :host, :port, :sock_path, :dap_port, :unsupported, :color
+      attr_reader :help, :version, :host, :dap_port, :unsupported, :invalid, :color
+      # CLI.connect_auto fills one of these in from MRDEBUG_SOCK/MRDEBUG_PORT.
+      attr_accessor :port, :sock_path
 
       DEFAULT_HOST = '127.0.0.1'
 
@@ -12,8 +14,6 @@ module MRDebug
       end
 
       def initialize(argv)
-        @file = '(remote)'
-        @line = 1
         @help = false
         @version = false
         @host = DEFAULT_HOST
@@ -21,6 +21,7 @@ module MRDebug
         @sock_path = nil
         @dap_port = nil
         @unsupported = nil
+        @invalid = nil
         @color = nil
 
         i = 0
@@ -46,27 +47,20 @@ module MRDebug
           when '--color'
             i += 1
             @color = argv[i]
-          when '--serial', '--open', '-O'
+          when '--serial'
+            i += 1
+            @unsupported ||= arg
+          when '--open', '-O'
             @unsupported ||= arg
           else
             if arg[0, 8] == '--color='
               @color = arg[8..-1]
-              i += 1
-              next
+            else
+              @invalid ||= arg
             end
-            @file, @line = parse_location(arg) unless arg[0, 1] == '-'
           end
           i += 1
         end
-      end
-
-      private
-
-      # `[<file>:]<line>`
-      def parse_location(arg)
-        colon = arg.rindex(':')
-        return [arg, 1] unless colon
-        [arg[0, colon], arg[(colon + 1)..-1].to_i]
       end
     end
   end
