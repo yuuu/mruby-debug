@@ -358,6 +358,11 @@ module MRDebug
           return response(request, {}, success: false,
                           message: 'multi-line expressions are not supported')
         end
+        # rdbg's `,command` syntax: vscode-rdbg's launch sends
+        # `,eval $stdout.sync=true` as soon as a session starts.
+        if expr[0, 1] == ','
+          return response(request, {}, success: false, message: 'debugger commands are not supported')
+        end
         error = select_frame(args['frameId'])
         return response(request, {}, success: false, message: error) if error
 
