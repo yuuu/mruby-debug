@@ -28,7 +28,6 @@ module MRDebug
       'tools/mrdebug/cli/options.rb',
       'tools/mrdebug/colorizer.rb',
       'tools/mrdebug/device.rb',
-      'tools/mrdebug/remote_session.rb',
       'tools/mrdebug/ruby_highlighter.rb',
       'tools/mrdebug/transport/colored.rb',
       'tools/mrdebug/transport/socket.rb',

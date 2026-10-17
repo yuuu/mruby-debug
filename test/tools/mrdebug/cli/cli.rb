@@ -1,22 +1,11 @@
-assert('CLI::Options parses a bare file:line') do
+assert('CLI::Options flags an unrecognized argument as invalid') do
   options = MRDebug::CLI::Options.parse(['foo.rb:42'])
-  assert_equal 'foo.rb', options.file
-  assert_equal 42, options.line
+  assert_equal 'foo.rb:42', options.invalid
   assert_false options.help
   assert_false options.version
   assert_nil options.unsupported
-end
-
-assert('CLI::Options defaults file/line when none is given') do
-  options = MRDebug::CLI::Options.parse([])
-  assert_equal '(remote)', options.file
-  assert_equal 1, options.line
-end
-
-assert('CLI::Options treats a location with no colon as line 1') do
-  options = MRDebug::CLI::Options.parse(['just_a_file.rb'])
-  assert_equal 'just_a_file.rb', options.file
-  assert_equal 1, options.line
+  assert_nil MRDebug::CLI::Options.parse([]).invalid
+  assert_equal '--bogus', MRDebug::CLI::Options.parse(['--bogus']).invalid
 end
 
 assert('CLI::Options recognizes --help/--version') do
@@ -111,32 +100,18 @@ assert('CLI.start --port --dap-port reports a failure to reach the device as fal
   assert_true transport.output.join.include?('dap bridge failed')
 end
 
-assert('CLI.start with no args runs a demo session against RemoteSession end to end') do
-  transport = MRDebug::Transport::Loopback.new(['print 1 + 1', 'continue'])
-  MRDebug::CLI.start(['foo.rb:10'], transport)
-
+assert('CLI.start rejects an unknown argument with usage, no Session') do
+  transport = MRDebug::Transport::Loopback.new
+  assert_false MRDebug::CLI.start(['foo.rb:10'], transport)
   out = transport.output.join
-  assert_true out.include?('Stop: foo.rb:10')
-  assert_true out.include?('2')
-  assert_true out.include?('session ended')
-ensure
-  MRDebug::Hook.uninstall
+  assert_true out.include?('unknown argument: foo.rb:10')
+  assert_true out.include?('Usage: mrdbg')
 end
 
-assert('CLI.start demo session resumes on step/next same as a real Session would') do
-  transport = MRDebug::Transport::Loopback.new(['n'])
-  MRDebug::CLI.start(['foo.rb:1'], transport)
-  assert_true transport.output.join.include?('session ended')
-ensure
-  MRDebug::Hook.uninstall
-end
-
-assert('CLI.run_demo_session wires RemoteSession, not the Session, into LocalConsole') do
-  transport = MRDebug::Transport::Loopback.new(['continue'])
-  MRDebug::CLI.run_demo_session(MRDebug::CLI::Options.new(['x.rb:5']), transport)
-  assert_true transport.output.join.include?('Stop: x.rb:5')
-ensure
-  MRDebug::Hook.uninstall
+assert('CLI.start --version prints the gem version') do
+  transport = MRDebug::Transport::Loopback.new
+  assert_true MRDebug::CLI.start(['--version'], transport)
+  assert_equal "mrdbg #{MRDebug::VERSION}\n", transport.output.join
 end
 
 assert('CLI::Options parses --color in both spellings') do
