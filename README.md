@@ -8,7 +8,7 @@ An interactive debugger for **mruby** (and PicoRuby's mruby VM). Put
 Add the gem to your mruby `build_config.rb`:
 
 ```ruby
-conf.gem github: 'yuuu/mruby-debug', branch: 'main'
+conf.gem github: 'yuuu/mruby-debug'
 ```
 
 On a PicoRuby device (e.g. R2P2-ESP32), either gem works. The on-device
@@ -16,7 +16,7 @@ console gem under `console/` pulls in `mrdebug` itself and adds the
 `(mrdbg)` prompt on the device's own console (see [On a device](#on-a-device)):
 
 ```ruby
-conf.gem github: 'yuuu/mruby-debug', branch: 'main', path: 'console'
+conf.gem github: 'yuuu/mruby-debug', path: 'console'
 ```
 
 On R2P2-ESP32, also raise the PicoRuby task stack to at least 32768 bytes
@@ -101,7 +101,7 @@ MRDEBUG_PORT=4711 mruby script.rb       # or MRDEBUG_SOCK=/tmp/mrdebug.sock
 ```
 
 ```sh
-mrdbg                                    # reads MRDEBUG_PORT / MRDEBUG_SOCK
+mrdbg                                    # reads MRDEBUG_HOST / MRDEBUG_PORT / MRDEBUG_SOCK
 mrdbg --host 192.168.0.10 --port 4711    # e.g. a board on the network
 ```
 
@@ -151,13 +151,44 @@ uncolored.
 
 ### Connecting from VS Code
 
-`mrdbg` can bridge a DAP client to a listening device. Start the bridge:
+`mrdbg` bridges [vscode-rdbg](https://marketplace.visualstudio.com/items?itemName=KoichiSasada.vscode-rdbg)
+to a listening device. Only `.vscode/launch.json` is needed: with `rdbgPath`
+pointing at `mrdbg`, vscode-rdbg starts the bridge on F5 and attaches to it
+once it's ready.
+
+```json
+{
+  "type": "rdbg",
+  "request": "launch",
+  "name": "Debug on device",
+  "rdbgPath": "/path/to/build/host/bin/mrdbg",
+  "script": "${file}",
+  "env": { "MRDEBUG_HOST": "192.168.0.10", "MRDEBUG_PORT": "4711" }
+}
+```
+
+- VS Code reaches the bridge over a Unix domain socket by default (in
+  `XDG_RUNTIME_DIR`, else `TMPDIR`, else `/tmp`). Set `debugPort` to listen
+  somewhere else: a TCP port (`"localhost:12345"`, required on a build
+  without Unix sockets) or a socket path.
+- `env` tells the bridge where the device is, as for `mrdbg` with no
+  args: `MRDEBUG_SOCK`, else `MRDEBUG_HOST` (default `127.0.0.1`) and
+  `MRDEBUG_PORT` (default 4711).
+- `script` is required by vscode-rdbg but not run: start the script on the
+  device first, so that it's waiting in `binding.debugger`. If the device
+  can't be reached, VS Code shows the error and the session doesn't start.
+- The bridge exits when the session ends, so each F5 starts a fresh one.
+
+This works because `mrdbg --open` accepts the command line vscode-rdbg gives
+`rdbg` (`--open [--host=H --port=P | --sock-path=PATH] -- ruby script`)
+and prints the `DEBUGGER: ...` lines it waits for.
+
+To run the bridge yourself instead, start it and use an `attach`
+configuration:
 
 ```sh
 mrdbg --host 192.168.0.10 --port 4711 --dap-port 12345
 ```
-
-Then attach with [vscode-rdbg](https://marketplace.visualstudio.com/items?itemName=KoichiSasada.vscode-rdbg):
 
 ```json
 {
@@ -165,51 +196,6 @@ Then attach with [vscode-rdbg](https://marketplace.visualstudio.com/items?itemNa
   "request": "attach",
   "name": "Attach to mrdbg",
   "debugPort": "localhost:12345"
-}
-```
-
-To have VS Code start the bridge itself, run `mrdbg` as a background task
-and name it as the attach configuration's `preLaunchTask`. VS Code waits for
-the `DAP bridge listening on` line before attaching. If the device can't be
-reached, `mrdbg` exits nonzero and the debug session doesn't start. The
-bridge exits when the session ends, so each F5 starts a fresh one. Start the
-script on the device first, so that it's waiting in `binding.debugger`.
-
-`.vscode/tasks.json`:
-
-```json
-{
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "mrdbg bridge",
-      "type": "process",
-      "command": "/path/to/build/host/bin/mrdbg",
-      "args": ["--host", "192.168.0.10", "--port", "4711", "--dap-port", "12345"],
-      "isBackground": true,
-      "problemMatcher": {
-        "owner": "mrdbg",
-        "pattern": { "regexp": "^never-matches$" },
-        "background": {
-          "activeBegins": true,
-          "beginsPattern": "^Connected to device",
-          "endsPattern": "^DAP bridge listening on"
-        }
-      }
-    }
-  ]
-}
-```
-
-`.vscode/launch.json`:
-
-```json
-{
-  "type": "rdbg",
-  "request": "attach",
-  "name": "Attach to device",
-  "debugPort": "localhost:12345",
-  "preLaunchTask": "mrdbg bridge"
 }
 ```
 

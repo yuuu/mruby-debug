@@ -13,6 +13,10 @@ module MRDebug
         transport.write("#{usage}\n")
       elsif options.version
         transport.write("mrdbg (interim build -- no wire protocol yet)\n")
+      elsif options.util
+        return util(options.util, transport)
+      elsif options.launch
+        return launch_dap(options, transport)
       elsif options.port && options.dap_port
         return connect_dap(options, transport)
       elsif options.port
@@ -33,28 +37,37 @@ module MRDebug
       true
     end
 
-    # `mrdbg` with no args: MRDEBUG_SOCK, else MRDEBUG_PORT, else 4711.
+    # `mrdbg` with no args: MRDEBUG_SOCK, else MRDEBUG_HOST:MRDEBUG_PORT
+    # (127.0.0.1, 4711 by default).
     def self.connect_auto(transport)
       sock = MRDebug.default_sock
       if sock
         connect_unix(Options.parse(['--sock-path', sock]), transport)
       else
-        connect_tcp(Options.parse(['--port', MRDebug.default_port.to_s]), transport)
+        connect_tcp(Options.parse(['--host', default_host, '--port', MRDebug.default_port.to_s]), transport)
       end
+    end
+
+    def self.default_host
+      MRDebug.env_value('MRDEBUG_HOST') || Options::DEFAULT_HOST
     end
 
     def self.usage
       "Usage: mrdbg [file[:line]]\n" \
-      "  (no args)         connect to MRDEBUG_SOCK, else 127.0.0.1:MRDEBUG_PORT (#{MRDebug::DEFAULT_PORT})\n" \
+      "  (no args)         connect to MRDEBUG_SOCK, else MRDEBUG_HOST (127.0.0.1):\n" \
+      "                     MRDEBUG_PORT (#{MRDebug::DEFAULT_PORT})\n" \
       "  --port PORT        connect to a device listening on 127.0.0.1:PORT\n" \
       "  --host HOST --port PORT   connect to a device listening on HOST:PORT\n" \
       "                     (e.g. a real board's IP over WiFi; default HOST is 127.0.0.1)\n" \
       "  --sock-path PATH   connect to a device listening on a Unix socket\n" \
       "  --port PORT --dap-port DAP_PORT   bridge a DAP client (e.g. VS Code's\n" \
       "                     vscode-rdbg, attach) on DAP_PORT to a device on PORT\n" \
+      "  --open [--port=DAP_PORT | --sock-path=PATH]   the same, run by vscode-rdbg's\n" \
+      "                     launch (rdbgPath), on a Unix socket unless given a port;\n" \
+      "                     the device is found as with no args\n" \
       "  --color auto|always|never   color the output (default auto: only on a TTY;\n" \
       "                     NO_COLOR disables, MRDEBUG_COLOR sets the default)\n" \
-      "  --serial DEV, --open   (not supported yet)\n" \
+      "  --serial DEV       (not supported yet)\n" \
       '  --help, --version'
     end
 
@@ -98,19 +111,123 @@ module MRDebug
     # (MRDebug.listen_tcp). Blocks the whole session (one DAP client,
     # matching vscode-rdbg's typical single attach).
     def self.connect_dap(options, transport)
+      dap_port = options.dap_port
       link = MRDebug::Transport::TCP.connect(options.host, options.port)
-      device = DeviceLink.new(link.io)
-      transport.write("Connected to device at #{options.host}:#{options.port}\n")
-      device.wait_for_entry
-      transport.write("DAP bridge listening on #{options.dap_port}; waiting for a client to attach...\n")
-      DapServer.new(device, options.dap_port).run
-      transport.write("(dap session ended)\n")
+      serve_dap(link, "#{options.host}:#{options.port}", -> { TCPServer.new('0.0.0.0', dap_port) }, transport) do
+        transport.write("DAP bridge listening on #{options.dap_port}; waiting for a client to attach...\n")
+      end
       true
     rescue => e
       transport.write("dap bridge failed: #{MRDebug.error_text(e)}\n")
       false
+    end
+
+    # The same bridge, run by vscode-rdbg's `launch` with `rdbgPath` set to
+    # mrdbg (see Options): the device is found as `mrdbg` with no args finds
+    # it (launch.json's `env`), and readiness is rdbg's two stderr lines,
+    # which vscode-rdbg waits for before attaching to the address the first
+    # one names. It also gives up on any stderr containing "Error", showing
+    # it to the user -- so failures are reported that way.
+    #
+    # The DAP side is TCP when launch.json's debugPort is a port, else a
+    # Unix socket: the path debugPort names (--sock-path), or, with no
+    # debugPort at all (vscode-rdbg's default off Windows), a fresh one.
+    def self.launch_dap(options, transport, err = STDERR)
+      bound = nil # the socket file, once created, to remove on the way out
+      if options.dap_port
+        unless options.dap_port > 0
+          report(err, 'Error: mrdbg needs a fixed TCP port in launch.json\'s debugPort (e.g. "localhost:12345")')
+          return false
+        end
+        dap_port = options.dap_port
+        listen = -> { TCPServer.new('0.0.0.0', dap_port) }
+        via = "TCP/IP (#{options.dap_host}:#{dap_port})"
+      else
+        unless defined?(UNIXServer)
+          report(err, 'Error: mrdbg needs a TCP debugPort in launch.json (e.g. "localhost:12345"): ' \
+                      'no Unix sockets on this build')
+          return false
+        end
+        sock = options.dap_sock_path || gen_sock_path
+        listen = lambda do
+          server = UNIXServer.new(sock)
+          bound = sock
+          server
+        end
+        via = "UNIX domain socket (#{sock})"
+      end
+      unless options.command.empty?
+        transport.write("mrdbg: not running `#{options.command.join(' ')}` -- " \
+                        "the program must already be waiting in binding.debugger\n")
+      end
+      link, where = connect_device
+      serve_dap(link, where, listen, transport) do
+        report(err, "DEBUGGER: Debugger can attach via #{via}")
+        report(err, 'DEBUGGER: wait for debugger connection...')
+      end
+      true
+    rescue => e
+      report(err, "Error: mrdbg could not bridge to the device: #{MRDebug.error_text(e)}")
+      false
     ensure
-      device.close if device
+      File.delete(bound) if bound && File.exist?(bound)
+    end
+
+    # A Unix socket path nothing uses yet, for the DAP side -- like rdbg's
+    # own, in XDG_RUNTIME_DIR, else TMPDIR, else /tmp. Also printed by
+    # `--util=gen-sockpath`, which vscode-rdbg runs first when launching
+    # into a terminal (`useTerminal`).
+    def self.gen_sock_path
+      dir = MRDebug.env_value('XDG_RUNTIME_DIR') || MRDebug.env_value('TMPDIR') || '/tmp'
+      dir = dir[0, dir.size - 1] if dir.size > 1 && dir[-1] == '/'
+      pid = defined?(Process) && Process.respond_to?(:pid) ? Process.pid : 0
+      base = "#{dir}/mrdbg-#{pid}"
+      path = base
+      n = 0
+      while File.exist?(path)
+        n += 1
+        path = "#{base}-#{n}"
+      end
+      path
+    end
+
+    # rdbg's `--util=NAME` helpers that vscode-rdbg runs; only gen-sockpath.
+    def self.util(name, transport)
+      if name == 'gen-sockpath'
+        transport.write("#{gen_sock_path}\n")
+        return true
+      end
+      transport.write("--util=#{name}: not supported\n")
+      false
+    end
+
+    # [link, description] for MRDEBUG_SOCK, else MRDEBUG_HOST:MRDEBUG_PORT.
+    def self.connect_device
+      sock = MRDebug.default_sock
+      return [MRDebug::Transport::Unix.connect(sock), sock] if sock
+      host = default_host
+      port = MRDebug.default_port
+      [MRDebug::Transport::TCP.connect(host, port), "#{host}:#{port}"]
+    end
+
+    # Waits for the device's entry stop, opens the DAP listener (`listen`,
+    # returning a TCPServer or UNIXServer), yields (to announce that it's
+    # ready), then serves one DAP client.
+    def self.serve_dap(link, where, listen, transport)
+      device = DeviceLink.new(link.io)
+      transport.write("Connected to device at #{where}\n")
+      device.wait_for_entry
+      server = DapServer.new(device, listen.call)
+      yield
+      server.run
+      transport.write("(dap session ended)\n")
+    ensure
+      link.close
+    end
+
+    def self.report(io, line)
+      io.write("#{line}\n")
+      io.flush if io.respond_to?(:flush)
     end
 
     def self.colorizer_for(options, out = STDOUT)
