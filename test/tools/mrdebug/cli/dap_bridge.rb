@@ -369,6 +369,15 @@ ensure
   MRDebug::Hook.uninstall
 end
 
+assert('DapBridge evaluate refuses rdbg\'s ,command syntax without evaluating it') do
+  bridge = dap_bridge_stopped(binding)
+  msg = dap_evaluate(bridge, ',eval $stdout.sync=true')
+  assert_false msg['success']
+  assert_equal 'debugger commands are not supported', msg['message']
+ensure
+  MRDebug::Hook.uninstall
+end
+
 assert('DapBridge evaluate turns a raised exception into success:false') do
   bridge = dap_bridge_stopped(binding)
   msg = dap_evaluate(bridge, 'dap_eval_undefined_name', 'context' => 'hover')

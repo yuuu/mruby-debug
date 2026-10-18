@@ -17,6 +17,17 @@ end
 assert('CLI::Options flags a connection flag as unsupported') do
   assert_equal '--serial', MRDebug::CLI::Options.parse(['--serial', '/dev/ttyUSB0']).unsupported
   assert_nil MRDebug::CLI::Options.parse(['--serial', '/dev/ttyUSB0']).port
+  assert_nil MRDebug::CLI::Options.parse(['--serial', '/dev/ttyUSB0']).invalid
+  assert_equal '--serial', MRDebug::CLI::Options.parse(['--serial=/dev/ttyUSB0']).unsupported
+end
+
+assert('CLI::Options tells an explicit --host from the default') do
+  options = MRDebug::CLI::Options.parse([])
+  assert_equal '127.0.0.1', options.host
+  assert_false options.host_given?
+  options = MRDebug::CLI::Options.parse(['--host', '10.0.0.2'])
+  assert_equal '10.0.0.2', options.host
+  assert_true options.host_given?
 end
 
 assert('CLI::Options parses --port') do
@@ -118,4 +129,121 @@ assert('CLI::Options parses --color in both spellings') do
   assert_equal 'always', MRDebug::CLI::Options.parse(['--color', 'always']).color
   assert_equal 'never', MRDebug::CLI::Options.parse(['--color=never']).color
   assert_nil MRDebug::CLI::Options.parse([]).color
+end
+
+assert('CLI::Options accepts --flag=value for flags that take a value') do
+  options = MRDebug::CLI::Options.parse(['--host=10.0.0.2', '--port=4712', '--dap-port=12345'])
+  assert_equal '10.0.0.2', options.host
+  assert_equal 4712, options.port
+  assert_equal 12345, options.dap_port
+  assert_equal '/tmp/x.sock', MRDebug::CLI::Options.parse(['--sock-path=/tmp/x.sock']).sock_path
+end
+
+assert('CLI::Options --open (vscode-rdbg launch) takes --host/--port as the DAP side') do
+  argv = ['--command', '--open', '--stop-at-load', '--host=localhost', '--port=12345',
+          '--', 'ruby', 'app.rb']
+  options = MRDebug::CLI::Options.parse(argv)
+  assert_true options.launch
+  assert_equal 'localhost', options.dap_host
+  assert_equal 12345, options.dap_port
+  assert_nil options.port
+  assert_equal ['ruby', 'app.rb'], options.command
+  assert_nil options.invalid # nothing after -- is an argument
+  assert_nil options.unsupported
+end
+
+def cli_test_with_env(vars)
+  saved = {}
+  vars.each_key { |k| saved[k] = ENV[k] }
+  vars.each { |k, v| if v.nil? then ENV.delete(k) else ENV[k] = v end }
+  yield
+ensure
+  saved.each { |k, v| if v.nil? then ENV.delete(k) else ENV[k] = v end }
+end
+
+assert('CLI::Options --open takes --sock-path as the DAP side') do
+  options = MRDebug::CLI::Options.parse(['--open', '--sock-path=/tmp/x.sock', '--', 'ruby', 'app.rb'])
+  assert_equal '/tmp/x.sock', options.dap_sock_path
+  assert_nil options.sock_path
+  assert_nil options.dap_port
+  assert_nil MRDebug::CLI::Options.parse(['--open']).dap_sock_path
+end
+
+assert('CLI.launch_dap with port 0 (no fixed debugPort) fails with an Error line on stderr') do
+  transport = MRDebug::Transport::Loopback.new
+  err = MRDebug::Transport::Loopback.new
+  options = MRDebug::CLI::Options.parse(['--command', '--open', '--host=localhost', '--port=0', '--', 'ruby', 'app.rb'])
+  assert_false MRDebug::CLI.launch_dap(options, transport, err)
+  assert_equal 'Error: ', err.output.join[0, 7]
+  assert_true err.output.join.include?('debugPort')
+end
+
+assert('CLI.launch_dap without a debugPort reports a device failure as Error and leaves no socket file') do
+  server = TCPServer.new('127.0.0.1', 0)
+  port = server.addr[1]
+  server.close
+
+  transport = MRDebug::Transport::Loopback.new
+  err = MRDebug::Transport::Loopback.new
+  sock = '/tmp/mrdebug-cli-test-launch.sock'
+  options = MRDebug::CLI::Options.parse(['--command', '--open', "--sock-path=#{sock}", '--', 'ruby', 'app.rb'])
+  cli_test_with_env('MRDEBUG_SOCK' => nil, 'MRDEBUG_HOST' => '127.0.0.1', 'MRDEBUG_PORT' => port.to_s) do
+    assert_false MRDebug::CLI.launch_dap(options, transport, err)
+  end
+  out = err.output.join
+  assert_equal 'Error: ', out[0, 7]
+  assert_false out.include?('DEBUGGER:')
+  assert_false File.exist?(sock)
+end
+
+assert('CLI.gen_sock_path is a fresh mrdbg-* path in XDG_RUNTIME_DIR, else TMPDIR, else /tmp') do
+  cli_test_with_env('XDG_RUNTIME_DIR' => '/run/user/1000', 'TMPDIR' => '/var/tmp') do
+    assert_equal '/run/user/1000/mrdbg-', MRDebug::CLI.gen_sock_path[0, 21]
+  end
+  cli_test_with_env('XDG_RUNTIME_DIR' => nil, 'TMPDIR' => '/var/tmp/') do
+    assert_equal '/var/tmp/mrdbg-', MRDebug::CLI.gen_sock_path[0, 15]
+  end
+  cli_test_with_env('XDG_RUNTIME_DIR' => nil, 'TMPDIR' => nil) do
+    path = MRDebug::CLI.gen_sock_path
+    assert_equal '/tmp/mrdbg-', path[0, 11]
+    File.open(path, 'w') { |f| f.write('') }
+    begin
+      assert_not_equal path, MRDebug::CLI.gen_sock_path
+    ensure
+      File.delete(path)
+    end
+  end
+end
+
+assert('CLI.start --util=gen-sockpath prints a socket path; other utils fail') do
+  transport = MRDebug::Transport::Loopback.new
+  assert_true MRDebug::CLI.start(['--util=gen-sockpath'], transport)
+  assert_true transport.output.join.include?('/mrdbg-')
+  assert_false MRDebug::CLI.start(['--util=list-socks'], MRDebug::Transport::Loopback.new)
+end
+
+assert('CLI.launch_dap finds the device from MRDEBUG_HOST/MRDEBUG_PORT and reports failure as Error') do
+  server = TCPServer.new('127.0.0.1', 0)
+  port = server.addr[1]
+  server.close # nothing listens at `port` from here on
+
+  transport = MRDebug::Transport::Loopback.new
+  err = MRDebug::Transport::Loopback.new
+  options = MRDebug::CLI::Options.parse(['--open', '--port=12345'])
+  cli_test_with_env('MRDEBUG_SOCK' => nil, 'MRDEBUG_HOST' => '127.0.0.1', 'MRDEBUG_PORT' => port.to_s) do
+    assert_false MRDebug::CLI.launch_dap(options, transport, err)
+  end
+  out = err.output.join
+  assert_equal 'Error: ', out[0, 7]
+  assert_true out.include?('could not bridge to the device')
+  assert_false out.include?('DEBUGGER: wait for debugger connection')
+end
+
+assert('CLI.default_host is MRDEBUG_HOST, else 127.0.0.1') do
+  cli_test_with_env('MRDEBUG_HOST' => '192.168.0.10') do
+    assert_equal '192.168.0.10', MRDebug::CLI.default_host
+  end
+  cli_test_with_env('MRDEBUG_HOST' => nil) do
+    assert_equal '127.0.0.1', MRDebug::CLI.default_host
+  end
 end
