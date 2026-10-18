@@ -20,9 +20,6 @@ module MRDebug
       def write(str)
         @output << str
       end
-
-      def close
-      end
     end
   end
 end
