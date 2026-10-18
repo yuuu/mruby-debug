@@ -153,17 +153,21 @@ run_in_dbg_context(mrb_state *mrb, mrb_value (*fn)(mrb_state *, void *), void *u
   return result;
 }
 
+/* Session#on_line(file, line, bnd[, forced]); `forced` is a MethodBreakpoint
+ * already matched at a call site, or nil. */
 static mrb_value
-invoke_on_line_forced(mrb_state *mrb, mrb_value file, int32_t line, mrb_value bnd, mrb_value forced)
+invoke_on_line(mrb_state *mrb, mrb_value file, int32_t line, mrb_value bnd, mrb_value forced)
 {
   struct on_line_args args = { hook.session, file, mrb_fixnum_value(line), bnd, forced };
   return run_in_dbg_context(mrb, call_on_line, &args, NULL);
 }
 
-static mrb_value
-invoke_on_line(mrb_state *mrb, mrb_value file, int32_t line, mrb_value bnd)
+/* invoke_on_line for the instruction at `off`, if it has a filename. */
+static void
+report_position(mrb_state *mrb, const mrb_irep *irep, uint32_t off, int32_t line, mrb_value forced)
 {
-  return invoke_on_line_forced(mrb, file, line, bnd, mrb_nil_value());
+  const char *file = mrb_debug_get_filename(mrb, irep, off);
+  if (file) invoke_on_line(mrb, filename_value(mrb, irep, file), line, mrb_nil_value(), forced);
 }
 
 struct method_query_args {
@@ -239,10 +243,7 @@ check_method_call(mrb_state *mrb, const mrb_irep *irep, const mrb_code *pc, mrb_
   if (is_cfunc) {
     uint32_t off = (uint32_t)(pc - irep->iseq);
     int32_t line = mrb_debug_get_line(mrb, irep, off);
-    const char *file = mrb_debug_get_filename(mrb, irep, off);
-    if (file && line >= 0) {
-      invoke_on_line_forced(mrb, filename_value(mrb, irep, file), line, mrb_nil_value(), bp);
-    }
+    if (line >= 0) report_position(mrb, irep, off, line, bp);
   }
   else {
     set_deferred_bp(mrb, bp);
@@ -256,18 +257,16 @@ hook_code_fetch(mrb_state *mrb, const mrb_irep *irep, const mrb_code *pc, mrb_va
 
   uint32_t off = (uint32_t)(pc - irep->iseq);
   int32_t line = mrb_debug_get_line(mrb, irep, off);
-  const char *file;
 
   /* A Ruby-method breakpoint deferred from the previous tick: we are now on
    * the callee's first instruction. */
   if (!mrb_nil_p(hook.deferred_bp)) {
     mrb_value bp = hook.deferred_bp;
     set_deferred_bp(mrb, mrb_nil_value());
-    file = mrb_debug_get_filename(mrb, irep, off);
-    if (file && line >= 0) {
+    if (line >= 0) {
       hook.prev_irep = irep;
       hook.prev_line = line;
-      invoke_on_line_forced(mrb, filename_value(mrb, irep, file), line, mrb_nil_value(), bp);
+      report_position(mrb, irep, off, line, bp);
     }
     return;
   }
@@ -275,11 +274,12 @@ hook_code_fetch(mrb_state *mrb, const mrb_irep *irep, const mrb_code *pc, mrb_va
   if (line >= 0 && !(irep == hook.prev_irep && line == hook.prev_line)) {
     hook.prev_irep = irep;
     hook.prev_line = line;
-    file = mrb_debug_get_filename(mrb, irep, off);
-    if (file) invoke_on_line(mrb, filename_value(mrb, irep, file), line, mrb_nil_value());
+    report_position(mrb, irep, off, line, mrb_nil_value());
   }
 
-  if (hook.method_name_count > 0 && mrb_nil_p(hook.deferred_bp) && !hook.in_callback) {
+  /* on_line can't have set deferred_bp, and run_in_dbg_context has
+   * cleared in_callback again by now. */
+  if (hook.method_name_count > 0) {
     check_method_call(mrb, irep, pc, regs);
   }
 }
@@ -296,7 +296,28 @@ hook_s_enter(mrb_state *mrb, mrb_value self)
   mrb_value file, bnd;
   mrb_int line;
   mrb_get_args(mrb, "Sio", &file, &line, &bnd);
-  return invoke_on_line(mrb, file, (int32_t)line, bnd);
+  return invoke_on_line(mrb, file, (int32_t)line, bnd, mrb_nil_value());
+}
+
+/* GC-registered while non-nil, like deferred_bp. */
+static void
+set_session(mrb_state *mrb, mrb_value session)
+{
+  if (!mrb_nil_p(hook.session)) mrb_gc_unregister(mrb, hook.session);
+  hook.session = session;
+  if (!mrb_nil_p(session)) mrb_gc_register(mrb, session);
+}
+
+/* Drops everything that arms the hook. Leaves in_callback alone: uninstall
+ * can run mid-callback (MRDebug.detach), and run_in_dbg_context's tail
+ * then keeps the hook off since armed is now false. */
+static void
+disarm(mrb_state *mrb)
+{
+  mrb->code_fetch_hook = NULL;
+  hook.armed = FALSE;
+  hook.method_name_count = 0;
+  set_deferred_bp(mrb, mrb_nil_value());
 }
 
 static mrb_value
@@ -305,31 +326,19 @@ hook_s_install(mrb_state *mrb, mrb_value self)
   mrb_value session;
   mrb_get_args(mrb, "o", &session);
 
-  if (!mrb_nil_p(hook.session)) mrb_gc_unregister(mrb, hook.session);
-  hook.session = session;
-  mrb_gc_register(mrb, hook.session);
-
+  set_session(mrb, session);
   hook.in_callback = FALSE;
   hook.prev_irep = NULL;
   hook.prev_line = -1;
-  hook.armed = FALSE;
-  hook.method_name_count = 0;
-  set_deferred_bp(mrb, mrb_nil_value());
-  mrb->code_fetch_hook = NULL;
+  disarm(mrb);
   return session;
 }
 
 static mrb_value
 hook_s_uninstall(mrb_state *mrb, mrb_value self)
 {
-  mrb->code_fetch_hook = NULL;
-  hook.armed = FALSE;
-  hook.method_name_count = 0;
-  set_deferred_bp(mrb, mrb_nil_value());
-  if (!mrb_nil_p(hook.session)) {
-    mrb_gc_unregister(mrb, hook.session);
-    hook.session = mrb_nil_value();
-  }
+  disarm(mrb);
+  set_session(mrb, mrb_nil_value());
   return mrb_nil_value();
 }
 
@@ -383,13 +392,14 @@ mrb_mrdebug_gem_init(mrb_state *mrb)
 void
 mrb_mrdebug_gem_final(mrb_state *mrb)
 {
-  mrb->code_fetch_hook = NULL;
-  hook.armed = FALSE;
-  hook.method_name_count = 0;
-  if (!mrb_nil_p(hook.deferred_bp)) {
-    mrb_gc_unregister(mrb, hook.deferred_bp);
-    hook.deferred_bp = mrb_nil_value();
+  disarm(mrb);
+  set_session(mrb, mrb_nil_value());
+  if (!mrb_nil_p(hook.filename.str)) {
+    mrb_gc_unregister(mrb, hook.filename.str);
+    hook.filename.str = mrb_nil_value();
   }
+  hook.filename.irep = NULL;
+  hook.filename.cstr = NULL;
   if (hook.ctx) {
     mrb_free_context(mrb, hook.ctx);
     hook.ctx = NULL;
