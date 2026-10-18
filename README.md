@@ -162,14 +162,15 @@ once it's ready.
   "request": "launch",
   "name": "Debug on device",
   "rdbgPath": "/path/to/build/host/bin/mrdbg",
-  "debugPort": "localhost:12345",
   "script": "${file}",
   "env": { "MRDEBUG_HOST": "192.168.0.10", "MRDEBUG_PORT": "4711" }
 }
 ```
 
-- `debugPort` is where the bridge listens for VS Code. It's required, and
-  must be a TCP port.
+- VS Code reaches the bridge over a Unix domain socket by default (in
+  `XDG_RUNTIME_DIR`, else `TMPDIR`, else `/tmp`). Set `debugPort` to listen
+  somewhere else: a TCP port (`"localhost:12345"`, required on a build
+  without Unix sockets) or a socket path.
 - `env` tells the bridge where the device is, as for `mrdbg` with no
   args: `MRDEBUG_SOCK`, else `MRDEBUG_HOST` (default `127.0.0.1`) and
   `MRDEBUG_PORT` (default 4711).
@@ -179,8 +180,8 @@ once it's ready.
 - The bridge exits when the session ends, so each F5 starts a fresh one.
 
 This works because `mrdbg --open` accepts the command line vscode-rdbg gives
-`rdbg` (`--open --host=H --port=P -- ruby script`) and prints the
-`DEBUGGER: ...` lines it waits for.
+`rdbg` (`--open [--host=H --port=P | --sock-path=PATH] -- ruby script`)
+and prints the `DEBUGGER: ...` lines it waits for.
 
 To run the bridge yourself instead, start it and use an `attach`
 configuration:

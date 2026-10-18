@@ -499,14 +499,22 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   vscode-rdbg's `launch` request with `rdbgPath: mrdbg` — README's
   single-`launch.json` setup. It mimics vscode-rdbg's internal (not public)
   contract with `rdbg`: the command line is `--command --open
-  --stop-at-load --host=H --port=P -- <command> <script>`, where `--host`/
-  `--port` are the *DAP* side (`Options` moves them to `dap_host`/
-  `dap_port`) and the trailing command is ignored; the device is found
-  from the environment (`connect_device`, as with no args). vscode-rdbg
+  --stop-at-load [--host=H --port=P | --sock-path=PATH] -- <command>
+  <script>`, where `--host`/`--port`/`--sock-path` are the *DAP* side
+  (`Options` moves them to `dap_host`/`dap_port`/`dap_sock_path`) and the
+  trailing command is ignored; the device is found from the environment
+  (`connect_device`, as with no args). With no `debugPort` (vscode-rdbg's
+  default off Windows) neither is passed, and the bridge listens on a
+  fresh Unix socket (`CLI.gen_sock_path`, also what `--util=gen-sockpath`
+  prints for `useTerminal`), removing it on exit. vscode-rdbg
   attaches once stderr has shown both `DEBUGGER: Debugger can attach via
-  TCP/IP (H:P)` and `DEBUGGER: wait for debugger connection...` — printed
-  only after `DapServer` has bound the port — and aborts on any stderr
-  containing `Error`, which is how failures are reported. It also sends
+  TCP/IP (H:P)` (or `UNIX domain socket (PATH)`) and `DEBUGGER: wait for
+  debugger connection...` — printed only after `DapServer` has bound the
+  listener — and aborts on any stderr containing `Error`, which is how
+  failures are reported. `DapServer` writes to the client through
+  `Transport::Socket` (`MSG_NOSIGNAL`): VS Code closes its end right after
+  `disconnect`, and the `terminated` sent on the device's EOF would
+  otherwise SIGPIPE the bridge before it cleans up. vscode-rdbg also sends
   `evaluate ,eval $stdout.sync=true` at session start; `DapBridge` refuses
   any `,`-prefixed expression without touching the device.
 - **`tools/mrdebug/colorizer.rb`/`ruby_highlighter.rb`/`transport/colored.rb`**

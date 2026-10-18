@@ -10,15 +10,19 @@ module MRDebug
       CONTENT_LENGTH = 'Content-Length: '.freeze
       HEADER_END = "\r\n\r\n".freeze
 
-      def initialize(device, dap_port, dap_host = '0.0.0.0')
+      # `server` is a bound TCPServer or UNIXServer; #run closes it once a
+      # client is accepted.
+      def initialize(device, server)
         @device = device
         @bridge = DapBridge.new(device)
-        @server = TCPServer.new(dap_host, dap_port)
+        @server = server
       end
 
       def run
         client = @server.accept
         @server.close
+        @out = MRDebug::Transport::Socket.new(client)
+        @client_gone = false
         @buf = ''
         loop do
           drain_device_stops(client)
@@ -27,10 +31,11 @@ module MRDebug
           if ready.include?(@device.io) && !handle_device(client)
             # The device closed the connection: its program ended (or it
             # went away), so this debug session is over too.
-            write_message(client, @bridge.terminated_notification)
+            write_message(@bridge.terminated_notification)
             break
           end
           break if ready.include?(client) && !handle_client(client)
+          break if @client_gone
         end
       ensure
         client.close if client
@@ -66,7 +71,7 @@ module MRDebug
           break unless msg
           @buf = rest
           request = Json.parse(msg)
-          @bridge.handle(request).each { |m| write_message(client, m) }
+          @bridge.handle(request).each { |m| write_message(m) }
         end
         true
       rescue EOFError
@@ -74,12 +79,18 @@ module MRDebug
       end
 
       def send_stop(client)
-        @bridge.stop_messages(@device.stopped_by).each { |m| write_message(client, m) }
+        @bridge.stop_messages(@device.stopped_by).each { |m| write_message(m) }
       end
 
-      def write_message(client, msg)
+      # Through Transport::Socket for its MSG_NOSIGNAL: VS Code closes its
+      # end right after `disconnect`, and the device's EOF that follows
+      # still sends `terminated` -- a plain write there is a SIGPIPE, which
+      # would kill the bridge before it cleans up (e.g. its socket file).
+      def write_message(msg)
         body = Json.generate(msg)
-        client.write("#{CONTENT_LENGTH}#{body.size}\r\n\r\n#{body}")
+        @out.write("#{CONTENT_LENGTH}#{body.size}\r\n\r\n#{body}")
+      rescue SystemCallError
+        @client_gone = true
       end
 
       # [message_body, remaining_buf], or [nil, buf] if not fully buffered.
