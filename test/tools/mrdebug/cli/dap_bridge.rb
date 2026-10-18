@@ -1,7 +1,47 @@
+# DapBridge's @remote over an in-process Session: the calls DeviceLink
+# makes over the wire, answered by Command.dispatch directly.
+class DapBridgeTestRemote
+  def initialize(session)
+    @session = session
+  end
+
+  def command(line)
+    MRDebug::Command.dispatch(@session, line)[0]
+  end
+
+  def source(path)
+    command("cat #{path}").join("\n")
+  end
+
+  def backtrace
+    @session.backtrace
+  end
+
+  def breakpoints
+    @session.breakpoints
+  end
+
+  def run_mode!
+    @session.run_mode!
+  end
+
+  def next_mode!(count = 1)
+    @session.next_mode!(count)
+  end
+
+  def step_mode!(count = 1)
+    @session.step_mode!(count)
+  end
+
+  def finish_mode!
+    @session.finish_mode!
+  end
+end
+
 def dap_bridge_test_remote
   session = MRDebug::Session.new
   session.on_line('/device/foo.rb', 1, binding)
-  MRDebug::RemoteSession.new(session)
+  DapBridgeTestRemote.new(session)
 end
 
 assert('DapBridge.initialize handshake: capabilities + initialized event') do
@@ -276,7 +316,7 @@ assert('DapBridge stepOut finishes the innermost frame, whatever frame was selec
   dap_step_out_x = 1
   session = DapBridgeFinishRecorder.new
   session.on_line('/device/foo.rb', 1, binding)
-  bridge = MRDebug::CLI::DapBridge.new(MRDebug::RemoteSession.new(session))
+  bridge = MRDebug::CLI::DapBridge.new(DapBridgeTestRemote.new(session))
   dap_req(bridge, 'configurationDone')
   dap_req(bridge, 'evaluate', 'expression' => 'dap_step_out_x', 'frameId' => 1)
   assert_equal 1, session.frame_index # the evaluate left frame 1 selected
@@ -292,7 +332,7 @@ end
 def dap_bridge_stopped(bnd)
   session = MRDebug::Session.new
   session.on_line('/device/foo.rb', 1, bnd)
-  bridge = MRDebug::CLI::DapBridge.new(MRDebug::RemoteSession.new(session))
+  bridge = MRDebug::CLI::DapBridge.new(DapBridgeTestRemote.new(session))
   bridge.handle('seq' => 1, 'type' => 'request', 'command' => 'configurationDone')
   bridge
 end
@@ -443,7 +483,7 @@ end
 assert('DapBridge source fetches a real file VS Code has no local copy of, by the path a stackTrace frame reported') do
   session = MRDebug::Session.new
   session.on_line(__FILE__, 1, binding)
-  remote = MRDebug::RemoteSession.new(session)
+  remote = DapBridgeTestRemote.new(session)
   bridge = MRDebug::CLI::DapBridge.new(remote)
   bridge.handle('seq' => 1, 'type' => 'request', 'command' => 'configurationDone')
 

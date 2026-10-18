@@ -1,7 +1,7 @@
 module MRDebug
   module CLI
     # --port/--sock-path take a value, so parsing walks argv by index
-    # instead of a plain #each.
+    # instead of a plain #each. Anything unrecognized lands in #invalid.
     #
     # `--open` is rdbg's flag, and makes this a launch: vscode-rdbg's
     # `launch` request, given `rdbgPath: mrdbg`, runs
@@ -13,26 +13,29 @@ module MRDebug
     # debugPort that's a path) or nothing, and attaches over a Unix socket:
     # a launch moves --sock-path to dap_sock_path the same way.
     class Options
-      attr_reader :file, :line, :help, :version, :host, :port, :sock_path, :dap_port, :unsupported, :color,
+      attr_reader :help, :version, :dap_port, :unsupported, :invalid, :color,
                   :launch, :dap_host, :dap_sock_path, :command, :util
+      # CLI.connect_auto fills these in from MRDEBUG_SOCK/MRDEBUG_HOST/
+      # MRDEBUG_PORT.
+      attr_accessor :port, :sock_path
+      attr_writer :host
 
       DEFAULT_HOST = '127.0.0.1'
-      VALUE_FLAGS = %w[--host --port --sock-path --dap-port --color --util].freeze
+      VALUE_FLAGS = %w[--host --port --sock-path --dap-port --color --util --serial].freeze
 
       def self.parse(argv)
         new(argv)
       end
 
       def initialize(argv)
-        @file = '(remote)'
-        @line = 1
         @help = false
         @version = false
-        @host = DEFAULT_HOST
+        @host = nil
         @port = nil
         @sock_path = nil
         @dap_port = nil
         @unsupported = nil
+        @invalid = nil
         @color = nil
         @launch = false
         @dap_host = DEFAULT_HOST
@@ -61,12 +64,22 @@ module MRDebug
         end
 
         return unless @launch
-        @dap_host = @host
+        @dap_host = host
         @dap_port = @port
         @dap_sock_path = @sock_path
-        @host = DEFAULT_HOST
+        @host = nil
         @port = nil
         @sock_path = nil
+      end
+
+      def host
+        @host || DEFAULT_HOST
+      end
+
+      # True when --host was given, so CLI.connect_auto leaves it alone
+      # rather than reading MRDEBUG_HOST.
+      def host_given?
+        !@host.nil?
       end
 
       private
@@ -89,10 +102,8 @@ module MRDebug
           @launch = true
         when '--command', '--stop-at-load'
           # rdbg's; a launch never starts the program itself.
-        when '--serial'
-          @unsupported ||= arg
         else
-          @file, @line = parse_location(arg) unless arg[0, 1] == '-'
+          @invalid ||= arg
         end
       end
 
@@ -104,14 +115,8 @@ module MRDebug
         when '--dap-port' then @dap_port = value.to_i
         when '--color' then @color = value
         when '--util' then @util = value
+        when '--serial' then @unsupported ||= name
         end
-      end
-
-      # `[<file>:]<line>`
-      def parse_location(arg)
-        colon = arg.rindex(':')
-        return [arg, 1] unless colon
-        [arg[0, colon], arg[(colon + 1)..-1].to_i]
       end
     end
   end
