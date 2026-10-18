@@ -175,13 +175,65 @@ ensure
   saved.each { |k, v| if v.nil? then ENV.delete(k) else ENV[k] = v end }
 end
 
-assert('CLI.launch_dap without a TCP debugPort fails with an Error line on stderr') do
+assert('CLI::Options --open takes --sock-path as the DAP side') do
+  options = MRDebug::CLI::Options.parse(['--open', '--sock-path=/tmp/x.sock', '--', 'ruby', 'app.rb'])
+  assert_equal '/tmp/x.sock', options.dap_sock_path
+  assert_nil options.sock_path
+  assert_nil options.dap_port
+  assert_nil MRDebug::CLI::Options.parse(['--open']).dap_sock_path
+end
+
+assert('CLI.launch_dap with port 0 (no fixed debugPort) fails with an Error line on stderr') do
   transport = MRDebug::Transport::Loopback.new
   err = MRDebug::Transport::Loopback.new
-  options = MRDebug::CLI::Options.parse(['--command', '--open', '--', 'ruby', 'app.rb'])
+  options = MRDebug::CLI::Options.parse(['--command', '--open', '--host=localhost', '--port=0', '--', 'ruby', 'app.rb'])
   assert_false MRDebug::CLI.launch_dap(options, transport, err)
   assert_equal 'Error: ', err.output.join[0, 7]
   assert_true err.output.join.include?('debugPort')
+end
+
+assert('CLI.launch_dap without a debugPort reports a device failure as Error and leaves no socket file') do
+  server = TCPServer.new('127.0.0.1', 0)
+  port = server.addr[1]
+  server.close
+
+  transport = MRDebug::Transport::Loopback.new
+  err = MRDebug::Transport::Loopback.new
+  sock = '/tmp/mrdebug-cli-test-launch.sock'
+  options = MRDebug::CLI::Options.parse(['--command', '--open', "--sock-path=#{sock}", '--', 'ruby', 'app.rb'])
+  cli_test_with_env('MRDEBUG_SOCK' => nil, 'MRDEBUG_HOST' => '127.0.0.1', 'MRDEBUG_PORT' => port.to_s) do
+    assert_false MRDebug::CLI.launch_dap(options, transport, err)
+  end
+  out = err.output.join
+  assert_equal 'Error: ', out[0, 7]
+  assert_false out.include?('DEBUGGER:')
+  assert_false File.exist?(sock)
+end
+
+assert('CLI.gen_sock_path is a fresh mrdbg-* path in XDG_RUNTIME_DIR, else TMPDIR, else /tmp') do
+  cli_test_with_env('XDG_RUNTIME_DIR' => '/run/user/1000', 'TMPDIR' => '/var/tmp') do
+    assert_equal '/run/user/1000/mrdbg-', MRDebug::CLI.gen_sock_path[0, 21]
+  end
+  cli_test_with_env('XDG_RUNTIME_DIR' => nil, 'TMPDIR' => '/var/tmp/') do
+    assert_equal '/var/tmp/mrdbg-', MRDebug::CLI.gen_sock_path[0, 15]
+  end
+  cli_test_with_env('XDG_RUNTIME_DIR' => nil, 'TMPDIR' => nil) do
+    path = MRDebug::CLI.gen_sock_path
+    assert_equal '/tmp/mrdbg-', path[0, 11]
+    File.open(path, 'w') { |f| f.write('') }
+    begin
+      assert_not_equal path, MRDebug::CLI.gen_sock_path
+    ensure
+      File.delete(path)
+    end
+  end
+end
+
+assert('CLI.start --util=gen-sockpath prints a socket path; other utils fail') do
+  transport = MRDebug::Transport::Loopback.new
+  assert_true MRDebug::CLI.start(['--util=gen-sockpath'], transport)
+  assert_true transport.output.join.include?('/mrdbg-')
+  assert_false MRDebug::CLI.start(['--util=list-socks'], MRDebug::Transport::Loopback.new)
 end
 
 assert('CLI.launch_dap finds the device from MRDEBUG_HOST/MRDEBUG_PORT and reports failure as Error') do

@@ -13,6 +13,8 @@ module MRDebug
         transport.write("#{usage}\n")
       elsif options.version
         transport.write("mrdbg (interim build -- no wire protocol yet)\n")
+      elsif options.util
+        return util(options.util, transport)
       elsif options.launch
         return launch_dap(options, transport)
       elsif options.port && options.dap_port
@@ -60,7 +62,8 @@ module MRDebug
       "  --sock-path PATH   connect to a device listening on a Unix socket\n" \
       "  --port PORT --dap-port DAP_PORT   bridge a DAP client (e.g. VS Code's\n" \
       "                     vscode-rdbg, attach) on DAP_PORT to a device on PORT\n" \
-      "  --open --port=DAP_PORT   the same, run by vscode-rdbg's launch (rdbgPath);\n" \
+      "  --open [--port=DAP_PORT | --sock-path=PATH]   the same, run by vscode-rdbg's\n" \
+      "                     launch (rdbgPath), on a Unix socket unless given a port;\n" \
       "                     the device is found as with no args\n" \
       "  --color auto|always|never   color the output (default auto: only on a TTY;\n" \
       "                     NO_COLOR disables, MRDEBUG_COLOR sets the default)\n" \
@@ -94,8 +97,9 @@ module MRDebug
     # (MRDebug.listen_tcp). Blocks the whole session (one DAP client,
     # matching vscode-rdbg's typical single attach).
     def self.connect_dap(options, transport)
+      dap_port = options.dap_port
       link = MRDebug::Transport::TCP.connect(options.host, options.port)
-      serve_dap(link, "#{options.host}:#{options.port}", options.dap_port, transport) do
+      serve_dap(link, "#{options.host}:#{options.port}", -> { TCPServer.new('0.0.0.0', dap_port) }, transport) do
         transport.write("DAP bridge listening on #{options.dap_port}; waiting for a client to attach...\n")
       end
       true
@@ -107,26 +111,79 @@ module MRDebug
     # The same bridge, run by vscode-rdbg's `launch` with `rdbgPath` set to
     # mrdbg (see Options): the device is found as `mrdbg` with no args finds
     # it (launch.json's `env`), and readiness is rdbg's two stderr lines,
-    # which vscode-rdbg waits for before attaching to dap_host:dap_port.
-    # It also gives up on any stderr containing "Error", showing it to the
-    # user -- so failures are reported that way.
+    # which vscode-rdbg waits for before attaching to the address the first
+    # one names. It also gives up on any stderr containing "Error", showing
+    # it to the user -- so failures are reported that way.
+    #
+    # The DAP side is TCP when launch.json's debugPort is a port, else a
+    # Unix socket: the path debugPort names (--sock-path), or, with no
+    # debugPort at all (vscode-rdbg's default off Windows), a fresh one.
     def self.launch_dap(options, transport, err = STDERR)
-      unless options.dap_port && options.dap_port > 0
-        report(err, 'Error: mrdbg needs a TCP debugPort in launch.json (e.g. "localhost:12345")')
-        return false
+      bound = nil # the socket file, once created, to remove on the way out
+      if options.dap_port
+        unless options.dap_port > 0
+          report(err, 'Error: mrdbg needs a fixed TCP port in launch.json\'s debugPort (e.g. "localhost:12345")')
+          return false
+        end
+        dap_port = options.dap_port
+        listen = -> { TCPServer.new('0.0.0.0', dap_port) }
+        via = "TCP/IP (#{options.dap_host}:#{dap_port})"
+      else
+        unless defined?(UNIXServer)
+          report(err, 'Error: mrdbg needs a TCP debugPort in launch.json (e.g. "localhost:12345"): ' \
+                      'no Unix sockets on this build')
+          return false
+        end
+        sock = options.dap_sock_path || gen_sock_path
+        listen = lambda do
+          server = UNIXServer.new(sock)
+          bound = sock
+          server
+        end
+        via = "UNIX domain socket (#{sock})"
       end
       unless options.command.empty?
         transport.write("mrdbg: not running `#{options.command.join(' ')}` -- " \
                         "the program must already be waiting in binding.debugger\n")
       end
       link, where = connect_device
-      serve_dap(link, where, options.dap_port, transport) do
-        report(err, "DEBUGGER: Debugger can attach via TCP/IP (#{options.dap_host}:#{options.dap_port})")
+      serve_dap(link, where, listen, transport) do
+        report(err, "DEBUGGER: Debugger can attach via #{via}")
         report(err, 'DEBUGGER: wait for debugger connection...')
       end
       true
     rescue => e
       report(err, "Error: mrdbg could not bridge to the device: #{e.class}: #{e.message}")
+      false
+    ensure
+      File.delete(bound) if bound && File.exist?(bound)
+    end
+
+    # A Unix socket path nothing uses yet, for the DAP side -- like rdbg's
+    # own, in XDG_RUNTIME_DIR, else TMPDIR, else /tmp. Also printed by
+    # `--util=gen-sockpath`, which vscode-rdbg runs first when launching
+    # into a terminal (`useTerminal`).
+    def self.gen_sock_path
+      dir = MRDebug.env_value('XDG_RUNTIME_DIR') || MRDebug.env_value('TMPDIR') || '/tmp'
+      dir = dir[0, dir.size - 1] if dir.size > 1 && dir[-1] == '/'
+      pid = defined?(Process) && Process.respond_to?(:pid) ? Process.pid : 0
+      base = "#{dir}/mrdbg-#{pid}"
+      path = base
+      n = 0
+      while File.exist?(path)
+        n += 1
+        path = "#{base}-#{n}"
+      end
+      path
+    end
+
+    # rdbg's `--util=NAME` helpers that vscode-rdbg runs; only gen-sockpath.
+    def self.util(name, transport)
+      if name == 'gen-sockpath'
+        transport.write("#{gen_sock_path}\n")
+        return true
+      end
+      transport.write("--util=#{name}: not supported\n")
       false
     end
 
@@ -139,13 +196,14 @@ module MRDebug
       [MRDebug::Transport::TCP.connect(host, port), "#{host}:#{port}"]
     end
 
-    # Waits for the device's entry stop, binds dap_port, yields (to announce
-    # that the port is ready), then serves one DAP client.
-    def self.serve_dap(link, where, dap_port, transport)
+    # Waits for the device's entry stop, opens the DAP listener (`listen`,
+    # returning a TCPServer or UNIXServer), yields (to announce that it's
+    # ready), then serves one DAP client.
+    def self.serve_dap(link, where, listen, transport)
       device = DeviceLink.new(link.io)
       transport.write("Connected to device at #{where}\n")
       device.wait_for_entry
-      server = DapServer.new(device, dap_port)
+      server = DapServer.new(device, listen.call)
       yield
       server.run
       transport.write("(dap session ended)\n")
