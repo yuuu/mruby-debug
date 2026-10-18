@@ -1,20 +1,13 @@
 module MRDebug
   class LineBreakpoint
+    include Breakpoint
+
     attr_reader :file, :line, :condition
 
     def initialize(file, line, condition = nil)
       @file = file
       @line = line
       @condition = condition
-      @active = true
-    end
-
-    def active?
-      @active
-    end
-
-    def deactivate!
-      @active = false
     end
 
     def match?(file, line)
@@ -22,15 +15,11 @@ module MRDebug
     end
 
     def stop_banner(siblings, location)
-      "#{Protocol::BREAKPOINT}#{siblings.index(self) + 1}: #{location}"
+      "#{Protocol::BREAKPOINT}#{number_in(siblings)}: #{location}"
     end
 
     def to_s
       condition ? "#{file}:#{line} if #{condition}" : "#{file}:#{line}"
-    end
-
-    def numbered_line(index)
-      "  ##{index} #{self}"
     end
   end
 end

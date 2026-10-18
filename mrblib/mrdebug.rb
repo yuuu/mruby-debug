@@ -17,6 +17,13 @@ module MRDebug
     "#{e.class}: #{e.message}"
   end
 
+  # ENV[name], or nil when it's unset, blank, or there's no ENV at all
+  # (a build without mruby-env/picoruby-env).
+  def self.env_value(name)
+    value = defined?(ENV) ? ENV[name] : nil
+    value && !value.empty? ? value : nil
+  end
+
   # Overridden on host builds (tools/mrdebug/device.rb); a no-op otherwise.
   def self.autostart
   end

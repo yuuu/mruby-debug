@@ -101,7 +101,11 @@ module MRDebug
       end
 
       def error_response(request, err)
-        response(request, {}, success: false, message: "#{err.class}: #{err.message}")
+        response(request, {}, success: false, message: MRDebug.error_text(err))
+      end
+
+      def arguments(request)
+        request['arguments'] || {}
       end
 
       def event(name, body = {})
@@ -114,10 +118,8 @@ module MRDebug
           [response(request, CAPABILITIES), event('initialized')]
         when 'attach', 'launch'
           [response(request)]
-        when 'setBreakpoints'
-          [response(request, set_breakpoints_body(request))]
-        when 'setFunctionBreakpoints'
-          [response(request, set_function_breakpoints_body(request))]
+        when 'setBreakpoints', 'setFunctionBreakpoints'
+          [breakpoints_response(request)]
         when 'configurationDone'
           @handshake_done = true
           [response(request), stopped_event('entry')]
@@ -154,10 +156,8 @@ module MRDebug
           @remote.command('frame 0')
           resume(:step_out) { @remote.finish_mode! }
           [response(request)]
-        when 'setBreakpoints'
-          [response(request, set_breakpoints_body(request))]
-        when 'setFunctionBreakpoints'
-          [response(request, set_function_breakpoints_body(request))]
+        when 'setBreakpoints', 'setFunctionBreakpoints'
+          [breakpoints_response(request)]
         when 'threads'
           [response(request, { 'threads' => [{ 'id' => 1, 'name' => 'main' }] })]
         when 'disconnect'
@@ -212,12 +212,21 @@ module MRDebug
         event('terminated')
       end
 
+      # Accepted both before and after configurationDone.
+      def breakpoints_response(request)
+        if request['command'] == 'setBreakpoints'
+          response(request, set_breakpoints_body(request))
+        else
+          response(request, set_function_breakpoints_body(request))
+        end
+      end
+
       # Replaces the full breakpoint set for one file: deactivate its
       # existing breakpoints, then re-add the requested lines. Normalizes
       # to a basename first -- VS Code's absolute path won't suffix-match
       # the device's short running path otherwise (dap/06's lesson).
       def set_breakpoints_body(request)
-        args = request['arguments'] || {}
+        args = arguments(request)
         file = basename(((args['source'] || {})['path']).to_s)
         requested = args['breakpoints'] || []
         ids = requested.map { new_bp_id }
@@ -229,7 +238,7 @@ module MRDebug
       # method spec (`Foo#bar` / `Foo.bar` / `bar`) is accepted -- anything
       # else would reach `break` as a line location.
       def set_function_breakpoints_body(request)
-        requested = (request['arguments'] || {})['breakpoints'] || []
+        requested = arguments(request)['breakpoints'] || []
         ids = requested.map { new_bp_id }
         results = @running ? defer(:function, nil, requested, ids) : apply_function(requested, ids)
         { 'breakpoints' => results }
@@ -344,7 +353,7 @@ module MRDebug
       # path, e.g. "./dap_test.rb", never exists on the host) -- @remote's
       # `source` fetches it over the wire instead (device: `cat`).
       def source_body(request)
-        path = ((request['arguments'] || {})['source'] || {})['path']
+        path = (arguments(request)['source'] || {})['path']
         { 'content' => @remote.source(path) }
       end
 
@@ -352,7 +361,7 @@ module MRDebug
       # success:false response, which is also what keeps VS Code from
       # showing a hover for an identifier that doesn't evaluate.
       def evaluate_response(request)
-        args = request['arguments'] || {}
+        args = arguments(request)
         expr = args['expression'].to_s
         if expr.index("\n")
           return response(request, {}, success: false,
@@ -388,7 +397,7 @@ module MRDebug
       # One "Locals" scope per frame. variablesReference must be > 0, so
       # it's the frame id + 1.
       def scopes_body(request)
-        frame_id = ((request['arguments'] || {})['frameId'] || 0).to_i
+        frame_id = (arguments(request)['frameId'] || 0).to_i
         { 'scopes' => [{ 'name' => 'Locals', 'presentationHint' => 'locals',
                          'variablesReference' => frame_id + 1, 'expensive' => false }] }
       end
@@ -397,7 +406,7 @@ module MRDebug
       # "name = value" line each; anything else ("No local variables", ...)
       # is skipped. Values aren't expandable (variablesReference 0).
       def variables_body(request)
-        ref = ((request['arguments'] || {})['variablesReference'] || 0).to_i
+        ref = (arguments(request)['variablesReference'] || 0).to_i
         variables = []
         error = select_frame(ref - 1)
         raise error if error

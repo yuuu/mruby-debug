@@ -186,7 +186,9 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   TCP instead. It also colors its output (`Colorizer.colorize_line`, the
   `tools/mrdebug/{ruby_highlighter,colorizer}.rb` files its `mrbgem.rake`
   adds to its own `rbfiles`) by default (no TTY probe — a serial terminal can't be probed;
-  `MRDEBUG_COLOR=never` or `NO_COLOR` turns it off), and not the prompt, since
+  `MRDEBUG_COLOR=never`, `NO_COLOR` or `TERM=dumb` turns it off —
+  `Colorizer.enabled?(nil)`, a `nil` io meaning "nothing to probe"), and
+  not the prompt, since
   `Editor::Line` sizes it by character count.
 - **`src/hook.c`** — the VM hook. `struct mrdebug_hook hook` (file-static)
   holds everything: the installed session, whether the hook is armed,
@@ -333,6 +335,11 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
     line breakpoints (one shared number sequence) and calls
     **`#sync_method_names`**, which pushes the active method breakpoints'
     name symbols to `Hook.watch_method_names` (also on remove/clear).
+- **`mrblib/mrdebug/breakpoint.rb`** — `MRDebug::Breakpoint`, the mixin
+  all three breakpoint classes include: `active?`/`deactivate!`,
+  `numbered_line`, and `number_in(siblings)` (its index in `Session`'s
+  list + 1, which `#stop_banner` prints). A `WatchVarBreakpoint` is never
+  deactivated (watches can't be deleted).
 - **`mrblib/mrdebug/line_breakpoint.rb`** — file/line/active, suffix match
   via hand-rolled `String#[]` slicing (see "Avoid `mruby-string-ext`
   methods" above), stable numbering shared with `Session`'s breakpoint
@@ -416,7 +423,9 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
 - **`tools/mrdebug/transport/socket.rb`** (host builds only) —
   `MRDebug::Transport::Socket`/`TCP`/`Unix`: `mruby-socket`, wrapping the
   accepted (`.listen`, device side) or connected (`.connect`, CLI side)
-  socket. `#gets` uses `#sysread`, not mruby-io's buffered `IO#gets` —
+  socket. `#gets` uses `#sysread` (`Transport.read_some`, also what the
+  CLI's relay, `DeviceLink` and `DapServer` read with), not mruby-io's
+  buffered `IO#gets` —
   the latter makes `#write` raise `Errno::ESPIPE` (silently swallowed by
   the VM hook, freezing the `(mrdbg)` loop) once a read has more than one
   line buffered ahead, since `IO#write` on a dual-purpose fd tries to
@@ -438,9 +447,11 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   R2P2 `MRDEBUG_PORT` comes from `/etc/config.yml`'s `env: mrdebug_port:`
   or the shell's `export`). `attach_local` is the one seam the
   `mrdebug-console` gem overrides. A listener bind failure propagates out
-  of `binding.debugger` rather than being swallowed. `env_value` tolerates
-  a build without `mruby-env` (`defined?(ENV)`) and treats a blank value
-  as unset.
+  of `binding.debugger` rather than being swallowed. `MRDebug.env_value`
+  (core, `mrblib/mrdebug.rb`, also what `Colorizer` reads) tolerates a
+  build without `mruby-env` (`defined?(ENV)`) and treats a blank value as
+  unset. `listen_tcp`/`listen_unix`/`attach_stdio` (and the console gem's
+  `attach_local`) all go through `MRDebug.start_session(ui)`.
 - **Re-attach** (`MRDebug.detach`, `mrblib/mrdebug.rb`): when a socket
   client goes away (EOF, or a failed write — `LocalConsole#lost`, gated on
   `Transport#detach_on_close?`), the stop resumes, the session is dropped
@@ -535,9 +546,9 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   `(mrdbg) ` prompt once whole. `CLI.relay` feeds device bytes through it;
   `Transport::Colored` is the same as a `Transport` decorator for
   `MRDebug.attach_stdio` (`stdio_transport`). `Colorizer.enabled?`: `--color`
-  / `MRDEBUG_COLOR`, then `NO_COLOR`/`TERM=dumb`, then `io.tty?`. `cat` and
-  `p` output aren't colored (no way to tell them from other text). Add new
-  files to `OwnSource::FILES`.
+  / `MRDEBUG_COLOR`, then `NO_COLOR`/`TERM=dumb`, then `io.tty?` (a `nil`
+  io counts as yes). `cat` and `p` output aren't colored (no way to tell
+  them from other text).
 - **`tools/mrdebug/ui/local_console.rb`** (host builds only) —
   `MRDebug::UI::LocalConsole`: the `(mrdbg)` prompt, one `STDIN.gets` (now via
   a `Transport`, defaulting to `Stdio`) per command. Reading exactly one
@@ -557,7 +568,8 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   Hardcoded rather than discovered at runtime (`Dir.glob` would need a
   filesystem, which a PicoRuby target may not have) — update
   `OwnSource::FILES` when adding, removing, or renaming a file under
-  `mrblib/mrdebug/` or `tools/mrdebug/`. Missing an
+  `mrblib/`, `tools/mrdebug/` or `console/mrblib/` (`spec/own_source_spec.rb`
+  compares the list against the tree and fails until it matches). Missing an
   entry shows up as `step N`/`next N`'s counter being consumed by mrdebug's
   own code, or `watch` reporting a shifted line — symptoms that look like
   VM bugs but aren't.
