@@ -471,12 +471,11 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   `tools/<bin>/*.c`, so it sits apart from the Ruby under `tools/mrdebug/`.
   It just calls `mrdbg_cli_main` (`tools/mrdebug/cli/main.rb`), and exits
   nonzero on an uncaught exception or when `CLI.start` returns `false` (a
-  failed connection or an unsupported flag) — README's VS Code
-  `preLaunchTask` setup relies on that to abort instead of attaching to
-  nothing.
+  failed connection or an unsupported flag), so a failed bridge stops a
+  VS Code launch instead of attaching to nothing.
 - **`tools/mrdebug/cli/cli.rb`**'s `--port`/`--sock-path` (and no args at
-  all, which reads `MRDEBUG_SOCK`/`MRDEBUG_PORT`, falling back to
-  `DEFAULT_PORT`, via `connect_auto`) — connect via the
+  all, which reads `MRDEBUG_SOCK`/`MRDEBUG_HOST`/`MRDEBUG_PORT`, falling
+  back to `127.0.0.1`/`DEFAULT_PORT`, via `connect_auto`) — connect via the
   transports above, then hand off to `#relay`: a raw `IO.select`-based
   byte pump between the socket and real `STDIN`/`STDOUT`, since the
   device's `(mrdbg) ` prompt has no trailing newline for a `#gets`-based
@@ -514,6 +513,28 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   breakpoint requests made meanwhile, applying them in `#stop_messages`
   (as `breakpoint` `changed` events) — so they only take effect from the
   next stop on. A device EOF becomes a `terminated` event (`DapServer`).
+  **`mrdbg --open`** (`CLI.launch_dap`) is the same bridge, started by
+  vscode-rdbg's `launch` request with `rdbgPath: mrdbg` — README's
+  single-`launch.json` setup. It mimics vscode-rdbg's internal (not public)
+  contract with `rdbg`: the command line is `--command --open
+  --stop-at-load [--host=H --port=P | --sock-path=PATH] -- <command>
+  <script>`, where `--host`/`--port`/`--sock-path` are the *DAP* side
+  (`Options` moves them to `dap_host`/`dap_port`/`dap_sock_path`) and the
+  trailing command is ignored; the device is found from the environment
+  (`connect_device`, as with no args). With no `debugPort` (vscode-rdbg's
+  default off Windows) neither is passed, and the bridge listens on a
+  fresh Unix socket (`CLI.gen_sock_path`, also what `--util=gen-sockpath`
+  prints for `useTerminal`), removing it on exit. vscode-rdbg
+  attaches once stderr has shown both `DEBUGGER: Debugger can attach via
+  TCP/IP (H:P)` (or `UNIX domain socket (PATH)`) and `DEBUGGER: wait for
+  debugger connection...` — printed only after `DapServer` has bound the
+  listener — and aborts on any stderr containing `Error`, which is how
+  failures are reported. `DapServer` writes to the client through
+  `Transport::Socket` (`MSG_NOSIGNAL`): VS Code closes its end right after
+  `disconnect`, and the `terminated` sent on the device's EOF would
+  otherwise SIGPIPE the bridge before it cleans up. vscode-rdbg also sends
+  `evaluate ,eval $stdout.sync=true` at session start; `DapBridge` refuses
+  any `,`-prefixed expression without touching the device.
 - **`tools/mrdebug/colorizer.rb`/`ruby_highlighter.rb`/`transport/colored.rb`**
   (host builds only) — ANSI colors, applied **only on the host, at display
   time**: `Command`/device output stays plain because `DapBridge` parses it
