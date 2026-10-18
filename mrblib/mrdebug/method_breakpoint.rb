@@ -50,7 +50,7 @@ module MRDebug
     end
 
     def stop_banner(siblings, location)
-      line = "Breakpoint #{siblings.index(self) + 1}: #{self}"
+      line = "#{Protocol::BREAKPOINT}#{siblings.index(self) + 1}: #{self}"
       @cfunc ? "#{line} (about to call a C method)" : line
     end
 

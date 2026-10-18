@@ -22,7 +22,7 @@ module MRDebug
     end
 
     def stop_banner(siblings, location)
-      "Breakpoint #{siblings.index(self) + 1}: #{location}"
+      "#{Protocol::BREAKPOINT}#{siblings.index(self) + 1}: #{location}"
     end
 
     def to_s

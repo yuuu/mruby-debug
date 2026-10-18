@@ -19,7 +19,7 @@ module MRDebug
     end
 
     def stop_banner(siblings, location)
-      "Watchpoint #{siblings.index(self) + 1}: #{location}"
+      "#{Protocol::WATCHPOINT}#{siblings.index(self) + 1}: #{location}"
     end
 
     def to_s
@@ -35,7 +35,7 @@ module MRDebug
     def safe_eval(bnd)
       bnd.eval(expr)
     rescue Exception => e
-      "#{e.class}: #{e.message}"
+      MRDebug.error_text(e)
     end
   end
 end
