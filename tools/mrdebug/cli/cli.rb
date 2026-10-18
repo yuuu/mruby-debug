@@ -167,7 +167,7 @@ module MRDebug
       end
       true
     rescue => e
-      report(err, "Error: mrdbg could not bridge to the device: #{e.class}: #{e.message}")
+      report(err, "Error: mrdbg could not bridge to the device: #{MRDebug.error_text(e)}")
       false
     ensure
       File.delete(bound) if bound && File.exist?(bound)
