@@ -134,62 +134,71 @@ module MRDebug
       ]],
     ]
 
+    NO_POSITION = 'No current position (not stopped anywhere yet)'.freeze
+    NO_FILESYSTEM = 'Source listing is not available (no filesystem access in this build)'.freeze
+    INVALID_LINE = 'Invalid line number'.freeze
+
+    # Verbs that hand control back to the debuggee (see .resume). Every
+    # other verb maps to a `<verb>_cmd(session, arg)` returning output lines.
+    RESUMING = [:continue, :step, :next, :finish]
+
     # Parses one command line and dispatches it against `session`.
     # Returns [output_lines, :stay | :resume]; never prints (the UI does).
     def self.dispatch(session, line)
       verb, arg = split(line)
       # An empty line just prompts again (never resumes by accident).
       return [[], :stay] if verb.empty?
-      case VERBS[verb]
-      when :continue
-        session.run_mode!
-        [[], :resume]
-      when :step
-        session.step_mode!(parse_count(arg))
-        [[], :resume]
-      when :next
-        session.next_mode!(parse_count(arg))
-        [[], :resume]
-      when :finish
-        return [['No current position (not stopped anywhere yet)'], :stay] if session.location.nil?
-        session.finish_mode!
-        [[], :resume]
-      when :break
-        [break_cmd(session, arg), :stay]
-      when :delete
-        [delete_cmd(session, arg), :stay]
-      when :list
-        [list_cmd(session, arg), :stay]
-      when :print
-        [print_cmd(session, arg), :stay]
-      when :backtrace
-        [backtrace_cmd(session), :stay]
-      when :frame
-        [frame_cmd(session, arg), :stay]
-      when :up
-        [move_frame(session, parse_count(arg)), :stay]
-      when :down
-        [move_frame(session, -parse_count(arg)), :stay]
-      when :cat
-        [cat_cmd(session, arg), :stay]
-      when :info
-        [info_cmd(session, arg), :stay]
-      when :display
-        [display_cmd(session, arg), :stay]
-      when :watch
-        [watch_cmd(session, arg), :stay]
-      when :help
-        [help_cmd(arg), :stay]
-      else
-        [["unknown command: #{line}"], :stay]
-      end
+      cmd = VERBS[verb]
+      return [["unknown command: #{line}"], :stay] unless cmd
+      return resume(session, cmd, arg) if RESUMING.include?(cmd)
+      [__send__(:"#{cmd}_cmd", session, arg), :stay]
     end
 
-    # Not String#strip -- mruby-string-ext methods misbehave under mrbtest.
+    def self.resume(session, cmd, arg)
+      case cmd
+      when :continue then session.run_mode!
+      when :step then session.step_mode!(parse_count(arg))
+      when :next then session.next_mode!(parse_count(arg))
+      when :finish
+        return [[NO_POSITION], :stay] if session.location.nil?
+        session.finish_mode!
+      end
+      [[], :resume]
+    end
+
+    # Character classes, by hand: nil-safe (a past-the-end String#[] is
+    # nil), and no Regexp (mruby may have none).
     def self.space?(c)
       c == ' ' || c == "\t" || c == "\n" || c == "\r"
     end
 
+    def self.digit?(c)
+      !c.nil? && c >= '0' && c <= '9'
+    end
+
+    def self.lower?(c)
+      !c.nil? && c >= 'a' && c <= 'z'
+    end
+
+    def self.upper?(c)
+      !c.nil? && c >= 'A' && c <= 'Z'
+    end
+
+    def self.word_char?(c)
+      lower?(c) || upper?(c) || digit?(c) || c == '_'
+    end
+
+    def self.digits?(str)
+      return false if str.empty?
+      i = 0
+      while i < str.size
+        return false unless digit?(str[i])
+        i += 1
+      end
+      true
+    end
+
+    # Not String#strip -- mruby-string-ext methods misbehave under mrbtest.
     def self.trim(str)
       i = 0
       i += 1 while i < str.size && space?(str[i])
@@ -218,60 +227,27 @@ module MRDebug
       return list_breakpoints(session) if blank?(arg)
 
       location, condition = split_condition(arg)
-      suffix = condition ? " if #{condition}" : ''
-
       spec = parse_method_spec(location)
       if spec
         n = session.add_method_breakpoint(spec[0], spec[1], spec[2], condition)
-        label = spec[0] ? "#{spec[0]}#{spec[2] ? '.' : '#'}#{spec[1]}" : spec[1]
-        return ["Breakpoint #{n} added at #{label}#{suffix}"]
+      else
+        file, ln = parse_location(session.file, location)
+        return [INVALID_LINE] unless ln && ln > 0
+        n = session.add_breakpoint(file, ln, condition)
       end
-
-      file, ln = parse_location(session.file, location)
-      return ['Invalid line number'] unless ln && ln > 0
-
-      n = session.add_breakpoint(file, ln, condition)
-      ["Breakpoint #{n} added at #{file}:#{ln}#{suffix}"]
+      ["#{Protocol::BREAKPOINT}#{n}#{Protocol::ADDED_AT}#{session.breakpoints[n - 1]}"]
     end
 
     # "Foo#bar" / "Foo::Bar#bar" / "Foo.bar" / "bar" -> [class_name|nil,
     # method_name, singleton?]. nil when it isn't a method spec (fall back
     # to a line breakpoint).
     def self.parse_method_spec(loc)
-      hash = char_index(loc, '#')
-      if hash
-        cname = loc[0, hash]
-        mname = loc[(hash + 1)..-1]
-        return nil unless const_path?(cname) && method_name?(mname)
-        return [cname, mname, false]
-      end
-      dot = last_dot_index(loc)
-      if dot
-        cname = loc[0, dot]
-        mname = loc[(dot + 1)..-1]
-        return nil unless const_path?(cname) && method_name?(mname)
-        return [cname, mname, true]
-      end
-      return [nil, loc, false] if method_name?(loc)
-      nil
-    end
-
-    def self.char_index(str, ch)
-      i = 0
-      while i < str.size
-        return i if str[i] == ch
-        i += 1
-      end
-      nil
-    end
-
-    def self.last_dot_index(str)
-      i = str.size - 1
-      while i >= 0
-        return i if str[i] == '.'
-        i -= 1
-      end
-      nil
+      sep = loc.index('#') || loc.rindex('.')
+      return (method_name?(loc) ? [nil, loc, false] : nil) unless sep
+      cname = loc[0, sep]
+      mname = loc[(sep + 1)..-1]
+      return nil unless const_path?(cname) && method_name?(mname)
+      [cname, mname, loc[sep] == '.']
     end
 
     # "Foo" or "Foo::Bar::Baz": each segment starts A-Z, rest word chars.
@@ -281,16 +257,12 @@ module MRDebug
     end
 
     def self.const_name?(seg)
-      return false if seg.empty?
-      return false unless seg[0] >= 'A' && seg[0] <= 'Z'
-      word_rest?(seg, 1)
+      upper?(seg[0]) && word_rest?(seg, 1)
     end
 
     # Starts a-z or _, rest word chars, optional trailing ! ? =.
     def self.method_name?(str)
-      return false if str.empty?
-      c = str[0]
-      return false unless (c >= 'a' && c <= 'z') || c == '_'
+      return false unless lower?(str[0]) || str[0] == '_'
       last = str.size - 1
       tail = str[last]
       stop = (tail == '!' || tail == '?' || tail == '=') ? last : str.size
@@ -301,9 +273,7 @@ module MRDebug
       upto ||= str.size
       i = from
       while i < upto
-        c = str[i]
-        ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
-        return false unless ok
+        return false unless word_char?(str[i])
         i += 1
       end
       true
@@ -312,40 +282,18 @@ module MRDebug
     # Splits "<location> if <condition>" at the first " if ". Returns
     # [location, nil] when there's no such clause.
     def self.split_condition(arg)
-      idx = find_if_clause(arg)
+      idx = arg.index(' if ')
       return [arg, nil] unless idx
       [trim(arg[0, idx]), trim(arg[(idx + 4)..-1])]
     end
 
-    def self.find_if_clause(str)
-      i = 0
-      last = str.size - 4
-      while i <= last
-        return i if str[i, 4] == ' if '
-        i += 1
-      end
-      nil
-    end
-
     # `[<file>:]<line>`: split at the last ':', else current_file is used.
     def self.parse_location(current_file, arg)
-      colon = last_colon_index(arg)
-      if colon
-        file = arg[0, colon]
-        file = current_file if file.empty?
-        [file, arg[(colon + 1)..-1].to_i]
-      else
-        [current_file, arg.to_i]
-      end
-    end
-
-    def self.last_colon_index(str)
-      i = str.size - 1
-      while i >= 0
-        return i if str[i] == ':'
-        i -= 1
-      end
-      nil
+      colon = arg.rindex(':')
+      return [current_file, arg.to_i] unless colon
+      file = arg[0, colon]
+      file = current_file if file.empty?
+      [file, arg[(colon + 1)..-1].to_i]
     end
 
     def self.list_breakpoints(session)
@@ -369,7 +317,7 @@ module MRDebug
       end
     end
 
-    def self.help_cmd(arg)
+    def self.help_cmd(_session, arg)
       if blank?(arg)
         lines = ['Commands']
         HELP.each { |_, label, short, _| lines << "  #{label} -- #{short}" }
@@ -382,32 +330,26 @@ module MRDebug
     end
 
     def self.display_cmd(session, arg)
-      return ['Usage: display <expression>'] if blank?(arg)
+      return ["#{Protocol::USAGE}display <expression>"] if blank?(arg)
       n = session.add_display(arg)
       ["#{n}: #{arg}"]
     end
 
     def self.list_cmd(session, arg)
       loc = session.location
-      return ['No current position (not stopped anywhere yet)'] if loc.nil?
+      return [NO_POSITION] if loc.nil?
 
       file, line = loc
       unless blank?(arg)
         file, line = parse_location(file, arg)
-        return ['Invalid line number'] unless line && line > 0
+        return [INVALID_LINE] unless line && line > 0
       end
       source_listing(file, line)
     end
 
-    # defined?(File) guards a firmware build with no mruby-io linked in.
     def self.source_listing(file, line)
-      return ['Source listing is not available (no filesystem access in this build)'] unless defined?(File)
-
-      text = read_file(file)
-      return ["Cannot open #{file}"] if text.nil?
-
-      # Not String#lines/#each_line -- mruby-string-ext, unsafe under mrbtest.
-      all_lines = text.split("\n")
+      all_lines, error = source_lines(file)
+      return [error] if error
       return ["Line #{line} is out of range for #{file} (#{all_lines.size} lines)"] if line > all_lines.size
 
       first = line - LIST_CONTEXT
@@ -423,6 +365,16 @@ module MRDebug
         i += 1
       end
       out
+    end
+
+    # [lines, nil], or [nil, why it can't be read]. defined?(File) guards a
+    # firmware build with no mruby-io linked in. Not String#lines/#each_line
+    # -- mruby-string-ext, unsafe under mrbtest.
+    def self.source_lines(file)
+      return [nil, NO_FILESYSTEM] unless defined?(File)
+      text = read_file(file)
+      return [nil, "Cannot open #{file}"] if text.nil?
+      [text.split("\n"), nil]
     end
 
     # Not File.read -- PicoRuby's picoruby-vfs File class has no such class
@@ -445,20 +397,15 @@ module MRDebug
       lines.empty? ? ['No watches set'] : lines
     end
 
-    # debug gem's wording. Also what lets DapBridge tell a failed
-    # `evaluate` apart from a value whose #inspect merely looks like an error.
-    EVAL_ERROR_PREFIX = 'eval error: '.freeze
-    NO_BINDING = 'No binding available for this breakpoint'.freeze
-
     def self.print_cmd(session, arg)
-      return ['Usage: p <expression>'] if blank?(arg)
+      return ["#{Protocol::USAGE}p <expression>"] if blank?(arg)
       bnd = session.binding
-      return [NO_BINDING] if bnd.nil?
+      return [Protocol::NO_BINDING] if bnd.nil?
       begin
         [bnd.eval(arg).inspect]
       rescue Exception => e
         # Exception, not StandardError: a bad expression can raise SyntaxError.
-        ["#{EVAL_ERROR_PREFIX}#{e.class}: #{e.message}"]
+        ["#{Protocol::EVAL_ERROR}#{MRDebug.error_text(e)}"]
       end
     end
 
@@ -468,7 +415,7 @@ module MRDebug
       sub = blank?(arg) ? 'locals' : trim(arg)
       return ["Unknown info subcommand: #{sub}"] unless sub == 'locals' || sub == 'l'
       bnd = session.binding
-      return [NO_BINDING] if bnd.nil?
+      return [Protocol::NO_BINDING] if bnd.nil?
 
       names = bnd.local_variables.select { |name| local_name?(name.to_s) }
       return ['No local variables'] if names.empty?
@@ -480,17 +427,16 @@ module MRDebug
     # could have written: a-z, _ or non-ASCII first.
     def self.local_name?(str)
       return false if str.empty?
-      c = str[0]
-      (c >= 'a' && c <= 'z') || c == '_' || str.getbyte(0) >= 0x80
+      lower?(str[0]) || str[0] == '_' || str.getbyte(0) >= 0x80
     end
 
     def self.inspect_local(bnd, name)
       bnd.local_variable_get(name).inspect
     rescue Exception => e
-      "#{EVAL_ERROR_PREFIX}#{e.class}: #{e.message}"
+      "#{Protocol::EVAL_ERROR}#{MRDebug.error_text(e)}"
     end
 
-    def self.backtrace_cmd(session)
+    def self.backtrace_cmd(session, _arg)
       frames = session.backtrace
       return ['No frame information available'] if frames.empty?
       lines = []
@@ -501,7 +447,7 @@ module MRDebug
     # `frame` alone shows the selected frame; `frame N` selects frame N
     # (numbered as by `bt`).
     def self.frame_cmd(session, arg)
-      return ['No current position (not stopped anywhere yet)'] if session.location.nil?
+      return [NO_POSITION] if session.location.nil?
       return [frame_line(session.frame_index, session.location)] if blank?(arg)
 
       n = trim(arg)
@@ -511,10 +457,18 @@ module MRDebug
       [frame_line(session.frame_index, loc)]
     end
 
+    def self.up_cmd(session, arg)
+      move_frame(session, parse_count(arg))
+    end
+
+    def self.down_cmd(session, arg)
+      move_frame(session, -parse_count(arg))
+    end
+
     # up (delta > 0) moves toward callers, down (delta < 0) back toward
     # the stop. Clamped at either end, like debug gem's up/down.
     def self.move_frame(session, delta)
-      return ['No current position (not stopped anywhere yet)'] if session.location.nil?
+      return [NO_POSITION] if session.location.nil?
       from = session.frame_index
       to = from + delta
       to = 0 if to < 0
@@ -531,28 +485,15 @@ module MRDebug
       "##{n} #{loc[0]}:#{loc[1]}"
     end
 
-    def self.digits?(str)
-      return false if str.empty?
-      i = 0
-      while i < str.size
-        return false unless str[i] >= '0' && str[i] <= '9'
-        i += 1
-      end
-      true
-    end
-
     # Unlike list_cmd, this is the whole file, unwindowed and with no line
     # numbers -- DapBridge's `source` handling wants raw source text (a
     # remote file VS Code has no local copy of), not a human-facing listing.
     def self.cat_cmd(session, arg)
       loc = session.location
       file = blank?(arg) ? (loc && loc[0]) : trim(arg)
-      return ['No current position (not stopped anywhere yet)'] if file.nil?
-      return ['Source listing is not available (no filesystem access in this build)'] unless defined?(File)
-
-      text = read_file(file)
-      return ["Cannot open #{file}"] if text.nil?
-      text.split("\n")
+      return [NO_POSITION] if file.nil?
+      lines, error = source_lines(file)
+      error ? [error] : lines
     end
   end
 end

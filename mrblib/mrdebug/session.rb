@@ -153,7 +153,7 @@ module MRDebug
     def stop_banner
       loc = "#{@file}:#{@line}"
       siblings = [@breakpoints, @watches].find { |list| list.include?(@stopped_by) }
-      siblings ? @stopped_by.stop_banner(siblings, loc) : "Stop: #{loc}"
+      siblings ? @stopped_by.stop_banner(siblings, loc) : "#{Protocol::STOP}#{loc}"
     end
 
     # bnd is set only for a direct MRDebug.break stop, which always stops.

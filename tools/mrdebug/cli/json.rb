@@ -105,11 +105,11 @@ module MRDebug
         end
 
         def space?(c)
-          c == ' ' || c == "\t" || c == "\n" || c == "\r"
+          Command.space?(c)
         end
 
         def digit?(c)
-          !c.nil? && c >= '0' && c <= '9'
+          Command.digit?(c)
         end
 
         def parse_object

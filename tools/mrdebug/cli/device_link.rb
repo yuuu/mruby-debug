@@ -3,11 +3,10 @@ module MRDebug
     # Drives a device's existing plain-text (mrdbg) protocol (LocalConsole +
     # Command.dispatch, unchanged -- see tools/mrdebug/ui/local_console.rb)
     # as DapBridge's @remote, over a real Transport::TCP/Unix connection.
-    # PROMPT never gets a trailing newline, which is exactly what makes it
-    # usable as an end-of-response marker: everything buffered before the
-    # first PROMPT match is that response's output lines.
+    # Protocol::PROMPT never gets a trailing newline, which is exactly what
+    # makes it usable as an end-of-response marker: everything buffered
+    # before the first prompt is that response's output lines.
     class DeviceLink
-      PROMPT = '(mrdbg) '.freeze
 
       attr_reader :io, :stopped_by
 
@@ -29,7 +28,7 @@ module MRDebug
       # True if a full response is already buffered -- lets a caller drain
       # everything pending before blocking in IO.select.
       def chunk_ready?
-        !@buf.index(PROMPT).nil?
+        !@buf.index(Protocol::PROMPT).nil?
       end
 
       # Blocks until one full response chunk is available; returns its
@@ -124,10 +123,10 @@ module MRDebug
       private
 
       def extract_chunk
-        idx = @buf.index(PROMPT)
+        idx = @buf.index(Protocol::PROMPT)
         return nil unless idx
         head = @buf[0, idx]
-        @buf = @buf[(idx + PROMPT.size)..-1]
+        @buf = @buf[(idx + Protocol::PROMPT.size)..-1]
         head.empty? ? [] : head.split("\n")
       end
 

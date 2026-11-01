@@ -12,6 +12,11 @@ module MRDebug
     MRDebug::Hook.install(session)
   end
 
+  # "Class: message", how every caught evaluation error is shown.
+  def self.error_text(e)
+    "#{e.class}: #{e.message}"
+  end
+
   # Overridden on host builds (tools/mrdebug/device.rb); a no-op otherwise.
   def self.autostart
   end

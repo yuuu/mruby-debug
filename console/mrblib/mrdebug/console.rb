@@ -23,7 +23,7 @@ module MRDebug
             @history = [[""]]
             @history_index = 0
             @prev_cursor_y = 0
-            self.prompt = "(mrdbg) "
+            self.prompt = Protocol::PROMPT
           end
         end.new
       end

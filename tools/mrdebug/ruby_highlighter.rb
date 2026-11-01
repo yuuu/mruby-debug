@@ -89,16 +89,16 @@ module MRDebug
       return paint(LITERAL, word) if word[-1] == ':'
       return paint(KEYWORD, word) if KEYWORDS.include?(word)
       return paint(LITERAL, word) if LITERALS.include?(word)
-      return paint(CONSTANT, word) if word[0] >= 'A' && word[0] <= 'Z'
+      return paint(CONSTANT, word) if Command.upper?(word[0])
       word
     end
 
     def self.alpha?(c)
-      !c.nil? && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_')
+      Command.lower?(c) || Command.upper?(c) || c == '_'
     end
 
     def self.digit?(c)
-      !c.nil? && c >= '0' && c <= '9'
+      Command.digit?(c)
     end
 
     # Identifier chars, plus one trailing ?/! (not part of `!=` / `?x`).
