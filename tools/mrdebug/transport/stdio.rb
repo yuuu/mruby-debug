@@ -11,9 +11,6 @@ module MRDebug
       def write(str)
         STDOUT.write(str)
       end
-
-      def close
-      end
     end
   end
 end

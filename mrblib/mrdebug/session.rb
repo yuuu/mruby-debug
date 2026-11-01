@@ -20,21 +20,16 @@ module MRDebug
       MRDebug::Hook.install(self)
     end
 
-    def breakpoints
-      @breakpoints
-    end
+    attr_reader :breakpoints, :watches
 
-    def watches
-      @watches
-    end
-
-    # Doesn't touch armed state -- see docs/known-bugs.md.
+    # Displays are evaluated only at a stop, so they never need the hook.
     def add_display(expr)
       @displays << DisplayExpression.new(expr)
       @displays.size
     end
 
-    # Doesn't touch armed state -- see docs/known-bugs.md.
+    # Doesn't arm the hook itself: a watch is only added at a stop, and the
+    # resume that follows (run/step/next/finish_mode!) re-derives armed.
     def add_watch(expr)
       @watches << WatchVarBreakpoint.new(expr)
       @watches.size
@@ -112,13 +107,8 @@ module MRDebug
     def method_bp_for(recv, method_sym, is_cfunc)
       return nil unless @mode == :run
       name = method_sym.to_s
-      bp = nil
-      @breakpoints.each do |b|
-        next unless b.is_a?(MethodBreakpoint) && b.method_name == name
-        if b.matches_call?(recv)
-          bp = b
-          break
-        end
+      bp = @breakpoints.find do |b|
+        b.is_a?(MethodBreakpoint) && b.method_name == name && b.matches_call?(recv)
       end
       return nil unless bp
       bp.cfunc! if is_cfunc

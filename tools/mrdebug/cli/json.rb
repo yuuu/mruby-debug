@@ -1,9 +1,9 @@
 module MRDebug
   module CLI
-    # mainline mruby ships no JSON gem (docs/plan-phase4.md step 2), so this
-    # is a small, DAP-scoped encoder/decoder rather than a general library
-    # (no surrogate-pair \u support, no streaming). Core String methods
-    # only (see CLAUDE.md's "Avoid mruby-string-ext methods").
+    # mainline mruby ships no JSON gem, so this is a small, DAP-scoped
+    # encoder/decoder rather than a general library (no surrogate-pair \u
+    # support, no streaming). Core String methods only (see CLAUDE.md's
+    # "Avoid mruby-string-ext methods").
     module Json
       class ParseError < StandardError; end
 
@@ -29,26 +29,27 @@ module MRDebug
       HEX_DIGITS = '0123456789abcdef'.freeze
 
       def self.generate_string(s)
-        out = '"'
+        out = ['"']
         i = 0
         while i < s.size
           byte = s.getbyte(i)
           case byte
-          when 0x22 then out += '\\"' # "
-          when 0x5c then out += '\\\\' # backslash
-          when 0x0a then out += '\\n'
-          when 0x0d then out += '\\r'
-          when 0x09 then out += '\\t'
+          when 0x22 then out << '\\"' # "
+          when 0x5c then out << '\\\\' # backslash
+          when 0x0a then out << '\\n'
+          when 0x0d then out << '\\r'
+          when 0x09 then out << '\\t'
           else
             if byte < 0x20
-              out += "\\u00#{HEX_DIGITS[(byte >> 4) & 0xf, 1]}#{HEX_DIGITS[byte & 0xf, 1]}"
+              out << "\\u00#{HEX_DIGITS[(byte >> 4) & 0xf, 1]}#{HEX_DIGITS[byte & 0xf, 1]}"
             else
-              out += s[i, 1]
+              out << s[i, 1]
             end
           end
           i += 1
         end
-        out + '"'
+        out << '"'
+        out.join
       end
 
       def self.parse(str)
@@ -151,16 +152,12 @@ module MRDebug
 
         def parse_string
           expect('"')
-          out = ''
+          out = []
           loop do
             c = advance
             raise ParseError, 'unterminated string' if c.nil?
-            return out if c == '"'
-            if c == '\\'
-              out += parse_escape
-            else
-              out += c
-            end
+            return out.join if c == '"'
+            out << (c == '\\' ? parse_escape : c)
           end
         end
 

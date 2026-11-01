@@ -88,13 +88,13 @@ def session_watch_add(i)
   i + 1
 end
 
-# Pins known-bugs.md's unresolved bug #1, not the desired behavior: a call
+# Pins a known, unresolved bug, not the desired behavior: a call
 # crossing scope (the watched name going in/out of scope) is itself
 # mistaken for a value change, so the hit lands on session_watch_add's def
 # line instead of its body -- 0 hits at the target line, not 2. Fixing
 # that bug should turn this into a failing test, which is the point: it
-# flags that the frame-selection redesign known-bugs.md calls for landed.
-assert('a watch does not yet stop on the line its value actually changes (known-bugs.md #1)') do
+# flags that a frame-aware watch redesign landed.
+assert('a watch does not yet stop on the line its value actually changes (known bug)') do
   recorder = SessionConditionalRecorder.new
   with_session(recorder) do
     recorder.add_watch('i')
