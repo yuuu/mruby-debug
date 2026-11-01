@@ -53,6 +53,15 @@ frame_binding(mrb_state *mrb, struct mrb_context *c, mrb_callinfo *ci)
   return mrb_binding_new(mrb, proc, ci->stack[0], env);
 }
 
+/* Frame `depth` (0 = innermost) of the paused context, or NULL. */
+static mrb_callinfo *
+paused_frame(mrb_state *mrb, mrb_int depth, struct mrb_context **cp)
+{
+  struct mrb_context *c = mrdebug_paused_ctx(mrb);
+  *cp = c;
+  return c ? frame_at(c, (int)depth) : NULL;
+}
+
 static mrb_value
 hook_s_frame_count(mrb_state *mrb, mrb_value self)
 {
@@ -66,8 +75,8 @@ hook_s_frame_position(mrb_state *mrb, mrb_value self)
   mrb_int depth;
   mrb_get_args(mrb, "i", &depth);
 
-  struct mrb_context *c = mrdebug_paused_ctx(mrb);
-  mrb_callinfo *ci = c ? frame_at(c, (int)depth) : NULL;
+  struct mrb_context *c;
+  mrb_callinfo *ci = paused_frame(mrb, depth, &c);
   if (!ci) return mrb_nil_value();
 
   int32_t line;
@@ -86,8 +95,8 @@ hook_s_frame_binding(mrb_state *mrb, mrb_value self)
   mrb_int depth;
   mrb_get_args(mrb, "i", &depth);
 
-  struct mrb_context *c = mrdebug_paused_ctx(mrb);
-  mrb_callinfo *ci = c ? frame_at(c, (int)depth) : NULL;
+  struct mrb_context *c;
+  mrb_callinfo *ci = paused_frame(mrb, depth, &c);
   if (!ci) return mrb_nil_value();
 
   return frame_binding(mrb, c, ci);
