@@ -63,9 +63,7 @@ module MRDebug
 
       # Returns false on EOF (client disconnected).
       def handle_client(client)
-        data = read_some(client)
-        return false if data.nil?
-        @buf += data
+        @buf += Transport.read_some(client)
         loop do
           msg, rest = extract_message(@buf)
           break unless msg
@@ -110,12 +108,6 @@ module MRDebug
         rest = header[(idx + CONTENT_LENGTH.size)..-1]
         eol = rest.index("\r\n") || rest.size
         rest[0, eol].to_i
-      end
-
-      def read_some(io)
-        io.respond_to?(:sysread) ? io.sysread(4096) : io.readpartial(4096)
-      rescue EOFError
-        nil
       end
     end
   end

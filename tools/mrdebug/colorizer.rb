@@ -17,19 +17,16 @@ module MRDebug
     DIM = "\e[2m".freeze
     ERROR_PREFIXES = [Protocol::EVAL_ERROR, 'Invalid ', 'Cannot open ', 'Unknown ', Protocol::USAGE, 'No frame '].freeze
 
-    # mode: 'always' / 'never' / anything else (auto: a TTY, unless
-    # NO_COLOR is set or TERM is dumb). nil falls back to MRDEBUG_COLOR.
+    # mode: 'always' / 'never' / anything else (auto: on unless NO_COLOR
+    # is set or TERM is dumb, and `io` is a TTY -- or there is no io to
+    # probe, as on a device's serial console). nil falls back to
+    # MRDEBUG_COLOR.
     def self.enabled?(io, mode = nil)
-      mode ||= env('MRDEBUG_COLOR')
+      mode ||= MRDebug.env_value('MRDEBUG_COLOR')
       return true if mode == 'always'
       return false if mode == 'never'
-      return false if env('NO_COLOR') || env('TERM') == 'dumb'
-      io.respond_to?(:tty?) && io.tty?
-    end
-
-    def self.env(name)
-      value = defined?(ENV) ? ENV[name] : nil
-      value && !value.empty? ? value : nil
+      return false if MRDebug.env_value('NO_COLOR') || MRDebug.env_value('TERM') == 'dumb'
+      io.nil? || (io.respond_to?(:tty?) && io.tty?)
     end
 
     def self.prefix?(str, prefix)

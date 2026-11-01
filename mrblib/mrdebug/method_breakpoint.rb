@@ -3,6 +3,8 @@ module MRDebug
   # hook (src/hook.c decodes OP_SEND). No resolution to file/line: the class
   # need not exist yet. Lives in Session's @breakpoints next to LineBreakpoint.
   class MethodBreakpoint
+    include Breakpoint
+
     attr_reader :class_name, :method_name, :condition
 
     # class_name: "Foo" / "Foo::Bar" / nil (any class). singleton: true for
@@ -12,16 +14,7 @@ module MRDebug
       @method_name = method_name
       @singleton = singleton
       @condition = condition
-      @active = true
       @cfunc = false
-    end
-
-    def active?
-      @active
-    end
-
-    def deactivate!
-      @active = false
     end
 
     def method_sym
@@ -38,7 +31,7 @@ module MRDebug
     # bar runs on any Foo (subclasses and module includers included);
     # `Foo.bar` matches when bar runs on Foo itself.
     def matches_call?(recv)
-      return false unless @active
+      return false unless active?
       return true if @class_name.nil?
       klass = MethodBreakpoint.resolve(@class_name)
       return false unless klass
@@ -50,17 +43,13 @@ module MRDebug
     end
 
     def stop_banner(siblings, location)
-      line = "#{Protocol::BREAKPOINT}#{siblings.index(self) + 1}: #{self}"
+      line = "#{Protocol::BREAKPOINT}#{number_in(siblings)}: #{self}"
       @cfunc ? "#{line} (about to call a C method)" : line
     end
 
     def to_s
       s = @class_name ? "#{@class_name}#{@singleton ? '.' : '#'}#{@method_name}" : @method_name
       @condition ? "#{s} if #{@condition}" : s
-    end
-
-    def numbered_line(index)
-      "  ##{index} #{self}"
     end
 
     # "Foo::Bar" -> the constant, or nil if it isn't defined yet.

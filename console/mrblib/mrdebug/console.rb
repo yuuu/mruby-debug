@@ -11,11 +11,10 @@ module MRDebug
     class Console < Base
       def initialize
         # On by default (a serial terminal can't be probed for ANSI support,
-        # so there is no TTY check); MRDEBUG_COLOR=never or NO_COLOR turns it
-        # off. The prompt itself stays plain: Editor::Line sizes it by
+        # so there is no TTY check); MRDEBUG_COLOR=never, NO_COLOR or
+        # TERM=dumb turns it off. The prompt itself stays plain: Editor::Line sizes it by
         # character count.
-        mode = Colorizer.env('MRDEBUG_COLOR')
-        @color = mode == 'always' || (mode != 'never' && Colorizer.env('NO_COLOR').nil?)
+        @color = Colorizer.enabled?(nil)
         @editor = Class.new(Editor::Line) do
           def initialize
             @height, @width = 24, 80
@@ -63,9 +62,6 @@ module MRDebug
   # Replaces tools/mrdebug/device.rb's attach_local (this gem loads later,
   # as a dependent): what MRDEBUG_PORT=console selects on a device.
   def self.attach_local
-    session = Session.new
-    session.ui = UI::Console.new
-    self.session = session
-    session
+    start_session(UI::Console.new)
   end
 end

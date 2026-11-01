@@ -81,12 +81,26 @@ module MRDebug
     end
 
     def self.connect_tcp(options, transport)
-      remote = MRDebug::Transport::TCP.connect(options.host, options.port)
-      transport.write("Connected to #{options.host}:#{options.port}\n")
+      connect_and_relay("#{options.host}:#{options.port}", options, transport) do
+        MRDebug::Transport::TCP.connect(options.host, options.port)
+      end
+    end
+
+    def self.connect_unix(options, transport)
+      connect_and_relay(options.sock_path, options, transport) do
+        MRDebug::Transport::Unix.connect(options.sock_path)
+      end
+    end
+
+    # Connects via the block (to `target`, for messages) and relays until
+    # the device closes. False if the connection failed.
+    def self.connect_and_relay(target, options, transport)
+      remote = yield
+      transport.write("Connected to #{target}\n")
       relay(remote.io, transport, STDIN, STDOUT, colorizer_for(options))
       true
     rescue => e
-      transport.write("connect #{options.host}:#{options.port} failed: #{e.class}: #{e.message}\n")
+      transport.write("connect #{target} failed: #{MRDebug.error_text(e)}\n")
       false
     ensure
       remote.close if remote
@@ -104,7 +118,7 @@ module MRDebug
       end
       true
     rescue => e
-      transport.write("dap bridge failed: #{e.class}: #{e.message}\n")
+      transport.write("dap bridge failed: #{MRDebug.error_text(e)}\n")
       false
     end
 
@@ -153,7 +167,7 @@ module MRDebug
       end
       true
     rescue => e
-      report(err, "Error: mrdbg could not bridge to the device: #{e.class}: #{e.message}")
+      report(err, "Error: mrdbg could not bridge to the device: #{MRDebug.error_text(e)}")
       false
     ensure
       File.delete(bound) if bound && File.exist?(bound)
@@ -216,25 +230,13 @@ module MRDebug
       io.flush if io.respond_to?(:flush)
     end
 
-    def self.connect_unix(options, transport)
-      remote = MRDebug::Transport::Unix.connect(options.sock_path)
-      transport.write("Connected to #{options.sock_path}\n")
-      relay(remote.io, transport, STDIN, STDOUT, colorizer_for(options))
-      true
-    rescue => e
-      transport.write("connect #{options.sock_path} failed: #{e.class}: #{e.message}\n")
-      false
-    ensure
-      remote.close if remote
+    def self.colorizer_for(options, out = STDOUT)
+      MRDebug::Colorizer.enabled?(out, options.color) ? MRDebug::Colorizer.new : nil
     end
 
     # Raw byte pump (the device's prompt has no trailing newline, so
     # #gets would block forever). Stops watching local_in on EOF rather
     # than ending the relay -- only the device closing its end does that.
-    def self.colorizer_for(options, out = STDOUT)
-      MRDebug::Colorizer.enabled?(out, options.color) ? MRDebug::Colorizer.new : nil
-    end
-
     def self.relay(remote_io, transport, local_in = STDIN, local_out = STDOUT, colorizer = nil)
       local_open = true
       loop do
@@ -246,7 +248,7 @@ module MRDebug
         end
         if local_open && ready.include?(local_in)
           begin
-            remote_io.write(read_some(local_in))
+            remote_io.write(MRDebug::Transport.read_some(local_in))
           rescue EOFError
             local_open = false
           end
@@ -260,15 +262,11 @@ module MRDebug
     # A ready select() doesn't mean one read drains it all.
     def self.drain(io, out, colorizer = nil)
       loop do
-        chunk = read_some(io)
+        chunk = MRDebug::Transport.read_some(io)
         out.write(colorizer ? colorizer.feed(chunk) : chunk)
         out.flush
         break unless IO.select([io], nil, nil, 0)
       end
-    end
-
-    def self.read_some(io)
-      io.respond_to?(:sysread) ? io.sysread(4096) : io.readpartial(4096)
     end
 
     def self.run_demo_session(options, transport)

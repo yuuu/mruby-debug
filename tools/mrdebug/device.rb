@@ -6,29 +6,28 @@ module MRDebug
   # MRDEBUG_PORT's value for "no socket, use the local console".
   CONSOLE = 'console'.freeze
 
+  # A new Session driven by `ui`, made the current one.
+  def self.start_session(ui)
+    session = Session.new
+    session.ui = ui
+    self.session = session
+    session
+  end
+
   # Opens a Session, blocks for the CLI to connect, wires it to LocalConsole.
   def self.listen_tcp(port = default_port, host = '0.0.0.0')
     notice("mrdebug: waiting for a debugger on port #{port}")
-    session = Session.new
-    session.ui = UI::LocalConsole.new(Transport::TCP.listen(port, host))
-    self.session = session
-    session
+    start_session(UI::LocalConsole.new(Transport::TCP.listen(port, host)))
   end
 
   def self.listen_unix(path)
     notice("mrdebug: waiting for a debugger on #{path}")
-    session = Session.new
-    session.ui = UI::LocalConsole.new(Transport::Unix.listen(path))
-    self.session = session
-    session
+    start_session(UI::LocalConsole.new(Transport::Unix.listen(path)))
   end
 
   # The (mrdbg) prompt on this process's own STDIN/STDOUT -- no socket, no CLI.
   def self.attach_stdio
-    session = Session.new
-    session.ui = UI::LocalConsole.new(stdio_transport)
-    self.session = session
-    session
+    start_session(UI::LocalConsole.new(stdio_transport))
   end
 
   # Stdio, colored when STDOUT is a TTY (the Colored decorator is host-only).
@@ -90,11 +89,5 @@ module MRDebug
   def self.default_sock
     return nil unless defined?(UNIXServer)
     env_value('MRDEBUG_SOCK')
-  end
-
-  # nil when mruby-env is absent or the value is blank.
-  def self.env_value(name)
-    value = defined?(ENV) ? ENV[name] : nil
-    value && !value.empty? ? value : nil
   end
 end
