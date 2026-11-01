@@ -84,9 +84,7 @@ module MRDebug
       end
 
       # [[file, line], ...] from the device's `bt` command, parsing
-      # "#N file:line" lines -- same shape as RemoteSession#backtrace's
-      # direct Session#backtrace call, so DapBridge can treat either
-      # @remote identically.
+      # "#N file:line" lines -- the same shape as Session#backtrace.
       def backtrace
         lines = command('bt')
         frames = []

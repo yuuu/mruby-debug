@@ -479,8 +479,10 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   transports above, then hand off to `#relay`: a raw `IO.select`-based
   byte pump between the socket and real `STDIN`/`STDOUT`, since the
   device's `(mrdbg) ` prompt has no trailing newline for a `#gets`-based
-  relay to wait on. A bare `mrdbg FILE:LINE` (a positional arg, no
-  connection flag) still runs the interim local demo session instead.
+  relay to wait on. Without `--port`/`--sock-path` it connects the same
+  way `mrdbg` with no args does (`connect_auto`; `--color` still applies,
+  and an explicit `--host` wins over `MRDEBUG_HOST` —
+  `Options#host_given?`); an unknown argument prints usage and fails.
   `Command.dispatch` runs on the device side, so the CLI only relays
   bytes — no structured RPC layer needed here.
 - **`tools/mrdebug/cli/dap_server.rb`/`dap_bridge.rb`/`device_link.rb`**
@@ -491,8 +493,8 @@ table is affected. `mrblib/mrdebug/line_breakpoint.rb`'s suffix match and
   `stackTrace`, `cat` for `source`, `frame N` then `p expr` / `info
   locals` for `evaluate`/`variables`, with the DAP frame id being the `bt`
   index) and parses their text output back; for the latter it goes
-  through `@remote.command(line)` (`DeviceLink#command`, or
-  `RemoteSession#command` via `Command.dispatch`). A failed `p` is told
+  through `@remote.command(line)` (`DeviceLink#command`; the tests use an
+  in-process stand-in that calls `Command.dispatch`). A failed `p` is told
   apart from a value by `Protocol::EVAL_ERROR` (`"eval error: "`,
   debug gem's wording) — don't change that output without updating
   `DapBridge#eval_error?`. Values aren't expandable (`variablesReference`

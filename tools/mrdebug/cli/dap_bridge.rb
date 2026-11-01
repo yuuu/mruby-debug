@@ -1,8 +1,8 @@
 module MRDebug
   module CLI
-    # A DAP request handler on top of a @remote (a RemoteSession for the
-    # same-process interim demo, or a DeviceLink for a real TCP-connected
-    # device -- see device_link.rb). #handle takes a parsed request Hash
+    # A DAP request handler on top of a @remote: a DeviceLink to a
+    # TCP-connected device (see device_link.rb), or anything else answering
+    # the same calls (the tests use an in-process Session). #handle takes a parsed request Hash
     # and returns response/event Hashes, so it's testable without a
     # socket; #handle_message wraps that with Json for raw text.
     # evaluate/scopes/variables are plain (mrdbg) commands sent through
