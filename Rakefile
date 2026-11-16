@@ -1,6 +1,6 @@
 # Drives a plain mruby checkout to build and test mrdebug.
 #
-# Point MRDEBUG_MRUBY_DIR at an mruby checkout (mruby 4.0.0 or later):
+# Point MRDEBUG_MRUBY_DIR at an mruby checkout (master from 2026-09-06 on):
 #
 #   MRDEBUG_MRUBY_DIR=~/src/mruby rake build
 #

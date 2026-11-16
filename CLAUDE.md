@@ -46,7 +46,8 @@ walking or the VM hook's context swap need to).
 
 This repo is a standalone mrbgem, not a full mruby/picoruby checkout. Point
 `MRDEBUG_MRUBY_DIR` at a checkout of [mruby](https://github.com/mruby/mruby)
-(4.0.0+) and use this repo's own `Rakefile`:
+(master from 2026-09-06 on; see README's Dependencies) and use this repo's
+own `Rakefile`:
 
 ```sh
 MRDEBUG_MRUBY_DIR=/path/to/mruby rake build       # build/host/bin/mruby

@@ -226,7 +226,10 @@ build.
 
 ## Dependencies
 
-- mruby 4.0.0+, or PicoRuby with `PICORB_VM_MRUBY`
+- mruby master from 2026-09-06 on, or PicoRuby with `PICORB_VM_MRUBY`.
+  mruby 4.0.0 doesn't build (no `svars` in `struct mrb_context`). 4.1.0-rc
+  and rc2 build, but their `defined?(::Socket)` is `nil`, so a client that
+  disconnects can kill the program with SIGPIPE.
 - `mruby-binding`, `mruby-eval`
 - Host builds only: `mruby-io`, `mruby-socket`, `mruby-env`
   (`picoruby-socket` / `picoruby-env` on PicoRuby)
