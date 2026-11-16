@@ -1,7 +1,7 @@
 # mrdebug: a debugger core for mruby. Everything but the VM hook itself
 # (src/hook.c, src/frame.c) lives on the Ruby side.
 module MRDebug
-  VERSION = '0.0.1'
+  VERSION = '0.2.0'
 
   def self.session
     @session
